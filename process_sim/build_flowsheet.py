@@ -481,10 +481,14 @@ def build_flowsheet(*,
         # but X101.design_N_and_OA() does not depend on org_in composition, only A_tot.
         # (A_tot is from aq_in; it is already current after run_until(V101).)
         _, OA_design = X101.design_N_and_OA()
-        A_tot = X101.inlets["aq_in"].total_molar_flow()
-        n_org_req_total = OA_design * A_tot
 
-        last_OA1 = float(OA_design)
+        # Enforce minimum O/A if provided (prevents unrealistically low organic flow)
+        OA1 = max(float(OA_design), float(getattr(params, "X1_OA_MIN", 0.0)))
+
+        A_tot = X101.inlets["aq_in"].total_molar_flow()
+        n_org_req_total = OA1 * A_tot
+
+        last_OA1 = float(OA1)
         last_norg_req = float(n_org_req_total)
 
         size_solvent_makeup_for_required_org_flow(
@@ -562,7 +566,8 @@ def build_flowsheet(*,
                 f"required={getattr(params, 'X3_REQUIRED_RECOVERY_TO_AQ', None)}"
             ) from e
 
-        AO3 = float(AO3_design)
+        # Enforce minimum A/O if provided (prevents unrealistically low strip flow)
+        AO3 = max(float(AO3_design), float(getattr(params, "X3_AO_MIN", 0.0)))
 
         O3_tot = X103.inlets["org_in"].total_molar_flow()
         A3_target = AO3 * O3_tot

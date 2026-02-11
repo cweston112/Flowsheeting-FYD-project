@@ -118,6 +118,7 @@ class InputParameters:
     X1_N_MAX = 50
     X1_OA_MAX = 1000.0
     X1_N_BALANCE_CAP = 20
+    X1_OA_MIN = 0.5  # So the optimiser does not use incredibly low flow rates
 
     X1_TBP_WT_FRACTION = 0.30
     X1_TBP_NAME = "TBP"
@@ -129,8 +130,8 @@ class InputParameters:
     X2_STRIP_VDOT_L_S = 1.0  # L/s (scales the total strip flow)
     X2_STRIP_MOLARITIES = {"AHA": 0.25, "HNO3": 0.5}  # mol/L
     X2_STRIP_WATER_MOLARITY = 55.5  # mol/L (pure water basis)
-    X2_TARGET_AO = 0.01
-    X2_AO_MIN = 0.05 #So the optimiser does not use incredibly low flow rates
+    X2_TARGET_AO = 0.5
+    X2_AO_MIN = 0.5 #So the optimiser does not use incredibly low flow rates
 
     # -------------------------------------------------------------------------
     # X2 STRIP DISTRIBUTION COEFFICIENTS (org/aq)
@@ -178,6 +179,7 @@ class InputParameters:
 
     X3_N_MAX = 50
     X3_AO_MAX = 1e4
+    X3_AO_MIN = 0.5  # So the optimiser does not use incredibly low flow rates
 
     # -------------------------------------------------------------------------
     # Solvent purge fraction after X3 organic outlet
