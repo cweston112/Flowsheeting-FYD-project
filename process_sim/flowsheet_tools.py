@@ -504,3 +504,275 @@ def export_units_to_excel(
             ws.append([port, s.name, s.phase, s.T, s.p, s.total_molar_flow(), s.mass_flow_g_s()])
 
     wb.save(path)
+
+# ==============================================================================
+# RECYCLE / TEAR-STREAM SOLVER (ROBUST)
+# ==============================================================================
+
+from dataclasses import dataclass
+from typing import Callable, Iterable
+
+
+@dataclass
+class RecycleResult:
+    converged: bool
+    iterations: int
+    error: float
+    error_history: list[float]
+
+
+def _pack_tears(
+    fs: Flowsheet,
+    tears: list[str],
+    *,
+    include_Tp: bool,
+) -> np.ndarray:
+    """Concatenate tear stream dense molar vectors (+ optional T/p) into one vector."""
+    chunks: list[np.ndarray] = []
+    for nm in tears:
+        s = fs.streams[nm]
+        chunks.append(s.to_dense())
+        if include_Tp:
+            chunks.append(np.array([float(s.T), float(s.p)], dtype=float))
+    return np.concatenate(chunks) if chunks else np.zeros((0,), dtype=float)
+
+
+def _unpack_tears(
+    fs: Flowsheet,
+    tears: list[str],
+    x: np.ndarray,
+    *,
+    include_Tp: bool,
+) -> None:
+    """Write concatenated tear vector back into fs.streams tear objects."""
+    i = 0
+    nsp = fs.reg.n()
+    for nm in tears:
+        s = fs.streams[nm]
+        s.from_dense(x[i:i+nsp])
+        i += nsp
+        if include_Tp:
+            s.T = float(x[i]); s.p = float(x[i+1])
+            i += 2
+
+
+def _rel_error(x_new: np.ndarray, x_old: np.ndarray, *, eps: float = 1e-12) -> float:
+    denom = max(float(np.max(np.abs(x_old))), eps)
+    return float(np.max(np.abs(x_new - x_old))) / denom
+
+
+class _Anderson:
+    """
+    Small Anderson acceleration for fixed-point x = F(x).
+    Stores last m residuals and does a regularized least squares.
+    """
+    def __init__(self, m: int = 6, lam: float = 1e-10):
+        self.m = int(m)
+        self.lam = float(lam)
+        self.X: list[np.ndarray] = []
+        self.R: list[np.ndarray] = []
+
+    def propose(self, x_fp: np.ndarray, x_prev: np.ndarray) -> np.ndarray:
+        """
+        Given fixed-point output x_fp = F(x_prev), form a mixed iterate.
+        Residual r = x_fp - x_prev.
+        """
+        r = (x_fp - x_prev)
+        self.X.append(x_prev.copy())
+        self.R.append(r.copy())
+        if len(self.X) > self.m:
+            self.X.pop(0)
+            self.R.pop(0)
+
+        # Not enough history -> just return fixed-point
+        k = len(self.R)
+        if k < 2:
+            return x_fp
+
+        # Solve min ||R c|| s.t. sum(c)=1, then x = sum(c_i * (X_i + R_i)) = sum(c_i * F(X_i))
+        # Build matrix of residuals
+        Rm = np.column_stack(self.R)  # (n, k)
+        RtR = Rm.T @ Rm + self.lam * np.eye(k)
+
+        ones = np.ones((k, 1))
+        KKT = np.block([[RtR, ones],
+                        [ones.T, np.zeros((1, 1))]])
+        rhs = np.concatenate([np.zeros((k, 1)), np.ones((1, 1))], axis=0)
+
+        try:
+            sol = np.linalg.solve(KKT, rhs)
+            c = sol[:k, 0]
+        except np.linalg.LinAlgError:
+            return x_fp
+
+        # Weighted combination of past fixed-point images: F(X_i) = X_i + R_i
+        Fm = np.column_stack([self.X[j] + self.R[j] for j in range(k)])
+        x_and = Fm @ c
+        return x_and
+
+
+def solve_recycles(
+    fs: Flowsheet,
+    *,
+    tears: Iterable[str],
+    evaluate_once: Callable[[], None],
+    max_iter: int = 200,
+    tol: float = 1e-8,
+    relax: float = 0.5,
+    include_Tp: bool = True,
+    use_anderson: bool = True,
+    anderson_m: int = 6,
+    verbose: bool = False,
+) -> RecycleResult:
+    """
+    Robust recycle loop solving x = F(x) where x is the tear-stream state.
+
+    - evaluate_once(): runs the flowsheet "once" (your unit_sequence + any sizing).
+      It must update the tear stream(s) as part of the run.
+
+    Convergence is based on tear-stream change only.
+    """
+    tears = list(tears)
+    if not tears:
+        # Nothing to solve; just run once
+        evaluate_once()
+        return RecycleResult(True, 1, 0.0, [0.0])
+
+    for nm in tears:
+        if nm not in fs.streams:
+            raise KeyError(f"Tear stream '{nm}' not found in flowsheet.streams")
+
+    anderson = _Anderson(m=anderson_m) if use_anderson else None
+
+    # Initial x
+    x_prev = _pack_tears(fs, tears, include_Tp=include_Tp)
+    hist: list[float] = []
+
+    for it in range(1, max_iter + 1):
+        # Run one pass -> updates fs.streams[...] including tear(s)
+        evaluate_once()
+
+        x_fp = _pack_tears(fs, tears, include_Tp=include_Tp)  # fixed-point image F(x_prev)
+        err = _rel_error(x_fp, x_prev)
+        hist.append(err)
+
+        if verbose:
+            print(f"[recycle] it={it:4d} err={err:.3e}")
+
+        if err < tol:
+            return RecycleResult(True, it, err, hist)
+
+        # Propose next x using Anderson (optional)
+        if anderson is not None:
+            x_prop = anderson.propose(x_fp, x_prev)
+        else:
+            x_prop = x_fp
+
+        # Under-relaxation (always applied)
+        x_next = (1.0 - relax) * x_prev + relax * x_prop
+
+        # Write back the tear(s) for next iteration
+        _unpack_tears(fs, tears, x_next, include_Tp=include_Tp)
+
+        # update
+        x_prev = x_next
+
+    # Not converged
+    return RecycleResult(False, max_iter, hist[-1] if hist else float("inf"), hist)
+
+# -----------------------------------------------------------------------------
+# Deterministic / idempotent conditioning support
+# -----------------------------------------------------------------------------
+
+def _cond_key(src_name: str, unit_name: str, T: float | None, p: float | None) -> tuple:
+    # Keys must be hashable and stable
+    return (str(src_name), str(unit_name),
+            None if T is None else float(T),
+            None if p is None else float(p))
+
+
+def get_or_create_conditioned_stream(
+    fs: Flowsheet,
+    *,
+    src: Stream,
+    unit_name: str,
+    target_T: float | None,
+    target_p: float | None,
+    make_HX: callable,
+    make_PC: callable,
+) -> Stream:
+    """
+    Returns a deterministic conditioned stream for feeding `unit_name`.
+
+    - Creates at most one HX and one PC (and at most one output stream per step)
+      for the (src.name, unit_name, target_T, target_p) signature.
+    - Subsequent calls reuse the previously created objects.
+    """
+    # Attach a cache lazily
+    if not hasattr(fs, "_conditioning_cache"):
+        fs._conditioning_cache = {}  # type: ignore[attr-defined]
+
+    cache: dict = fs._conditioning_cache  # type: ignore[attr-defined]
+    key = _cond_key(src.name, unit_name, target_T, target_p)
+
+    if key in cache:
+        return cache[key]
+
+    out = src
+
+    # HX step (if needed)
+    if target_T is not None and abs(float(out.T) - float(target_T)) > 1e-9:
+        hx_name = f"HX__{src.name}__to__{unit_name}"
+        sT_name = f"{src.name}__to__{unit_name}__T"
+
+        # stream
+        if sT_name in fs.streams:
+            sT = fs.streams[sT_name]
+        else:
+            sT = fs.new_process_stream(sT_name, phase=out.phase, mol={})
+        sT.phase = out.phase
+        sT.T = float(target_T)
+        sT.p = float(out.p)
+
+        # unit
+        if hx_name in fs.units:
+            hx = fs.units[hx_name]
+        else:
+            hx = make_HX(hx_name, float(target_T))
+            fs.add_unit(hx)
+
+        hx.inlets["in"] = out
+        hx.outlets["out"] = sT
+        sT.producer = hx.name
+
+        out = sT
+
+    # PC step (if needed)
+    if target_p is not None and abs(float(out.p) - float(target_p)) > 1e-6:
+        pc_name = f"PC__{src.name}__to__{unit_name}"
+        sp_name = f"{src.name}__to__{unit_name}__p"
+
+        # stream
+        if sp_name in fs.streams:
+            sp = fs.streams[sp_name]
+        else:
+            sp = fs.new_process_stream(sp_name, phase=out.phase, mol={})
+        sp.phase = out.phase
+        sp.p = float(target_p)
+        sp.T = float(out.T)
+
+        # unit
+        if pc_name in fs.units:
+            pc = fs.units[pc_name]
+        else:
+            pc = make_PC(pc_name, float(target_p))
+            fs.add_unit(pc)
+
+        pc.inlets["in"] = out
+        pc.outlets["out"] = sp
+        sp.producer = pc.name
+
+        out = sp
+
+    cache[key] = out
+    return out

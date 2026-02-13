@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from typing import List, Iterable, Optional
-import numpy as np
 
 from .inputs import InputParameters
 from .flowsheet_tools import (
@@ -16,6 +15,7 @@ from .flowsheet_tools import (
     _needs_p,
     size_solvent_makeup_for_required_org_flow,
     set_aqueous_molarities,
+    get_or_create_conditioned_stream,
 )
 from .unitops import (
     Mixer,
@@ -65,6 +65,7 @@ def build_registry() -> ComponentRegistry:
     for name, formula in formula_species.items():
         reg.add_species(name, formula=formula)
 
+    # Explicit aliases (ensure MW exists even if formula differs)
     reg.add_species("I_g", mw_g_mol=reg.mw["I_g"])
     reg.add_species("I_aq", mw_g_mol=reg.mw["I"])
     return reg
@@ -82,10 +83,16 @@ def build_flowsheet(*,
                     tear_stream_names: Optional[Iterable[str]] = None) -> Flowsheet:
     """
     Dissolver + TBP extraction (X101) + AHA strip (X102) + final strip (X103) + purge/recycle (V133)
-    - Recycle-capable execution loop.
-    - Organic feed to X101 is mixed from recycle (F15) + makeup (F16).
-      Makeup is sized each iteration to meet X101 recovery/OA design requirements.
-    - Tear streams: pass e.g. tear_stream_names=["F15"] (default).
+
+    Key change vs your previous build_flowsheet:
+      - Conditioning (HX/PC) is now DETERMINISTIC / IDEMPOTENT.
+        Each (src_stream, unit) pair will be conditioned at most once (reused thereafter),
+        preventing stream/unit proliferation and wiring drift.
+
+    Notes:
+      - Organic feed to X101 is mixed from recycle (F15) + makeup (F16).
+      - Makeup is sized each iteration to meet X101 recovery/OA design requirements.
+      - Tear streams: pass e.g. tear_stream_names=["F15"] (default).
     """
     params = InputParameters()
     reg = build_registry()
@@ -99,6 +106,17 @@ def build_flowsheet(*,
         unit_sequence.append(u)
         return u
 
+    def _add_unit_once(u):
+        """Add unit to fs + unit_sequence only if it's not already present."""
+        if u.name in fs.units:
+            u_existing = fs.units[u.name]
+            if u_existing not in unit_sequence:
+                unit_sequence.append(u_existing)
+            return u_existing
+        fs.add_unit(u)
+        unit_sequence.append(u)
+        return u
+
     def run_unit(u) -> None:
         u.apply()
         stamp_outlets_to_unit_conditions(u, unit_cond)
@@ -108,11 +126,22 @@ def build_flowsheet(*,
         x0, _, _ = prev_snap[name]
         x1, _, _ = curr_snap[name]
         s.from_dense((1.0 - alpha) * x0 + alpha * x1)
+        # relax T/p too if requested
+        if include_Tp:
+            _, T0, p0 = prev_snap[name]
+            _, T1, p1 = curr_snap[name]
+            s.T = (1.0 - alpha) * T0 + alpha * T1
+            s.p = (1.0 - alpha) * p0 + alpha * p1
 
     # -------------------------------------------------------------------------
-    # T/P INTEGRATION
+    # DETERMINISTIC T/P CONDITIONING
     # -------------------------------------------------------------------------
     def condition_to_unit(src: Stream, unit_name: str) -> Stream:
+        """
+        Deterministic conditioning:
+          - at most one HX and one PC created per (src.name -> unit_name) wiring.
+          - the conditioned stream objects are reused thereafter.
+        """
         cond = unit_cond.get(unit_name, {})
 
         # Predict src T/p from producing unit (if known)
@@ -131,41 +160,41 @@ def build_flowsheet(*,
                 self.p = p
 
         view = _View(src_T, src_p)
-        out = src
 
-        need_T = _needs_T(view, cond.get("T", None))
-        need_p = _needs_p(view, cond.get("p", None))
+        target_T = cond.get("T", None)
+        target_p = cond.get("p", None)
 
-        if need_T:
-            sT = fs.new_process_stream(f"{out.name}_T", phase=out.phase, mol={})
-            sT.T = float(cond["T"])
-            sT.p = src_p
-            sT.phase = out.phase
+        need_T = _needs_T(view, target_T)
+        need_p = _needs_p(view, target_p)
 
-            u = HeaterCooler(f"HX__{out.name}__to__{unit_name}", set_T=float(cond["T"]))
-            u.add_inlet("in", out)
-            u.add_outlet("out", sT)
+        if not need_T and not need_p:
+            return src
 
-            fs.add_unit(u)
-            unit_sequence.append(u)
+        def make_HX(name: str, T: float):
+            return HeaterCooler(name, set_T=T)
 
-            out = sT
-            view = _View(sT.T, sT.p)
+        def make_PC(name: str, p: float):
+            return PressureChanger(name, set_p=p)
 
-        if need_p:
-            sp = fs.new_process_stream(f"{out.name}_p", phase=out.phase, mol={})
-            sp.p = float(cond["p"])
-            sp.T = out.T
-            sp.phase = out.phase
+        out = get_or_create_conditioned_stream(
+            fs,
+            src=src,
+            unit_name=unit_name,
+            target_T=float(target_T) if need_T else None,
+            target_p=float(target_p) if need_p else None,
+            make_HX=make_HX,
+            make_PC=make_PC,
+        )
 
-            u = PressureChanger(f"PC__{out.name}__to__{unit_name}", set_p=float(cond["p"]))
-            u.add_inlet("in", out)
-            u.add_outlet("out", sp)
+        # Ensure deterministic execution ordering: conditioner units appear in unit_sequence once
+        # (and before the consuming unit, because condition_to_unit is called while wiring it).
+        hx_name = f"HX__{src.name}__to__{unit_name}"
+        pc_name = f"PC__{src.name}__to__{unit_name}"
 
-            fs.add_unit(u)
-            unit_sequence.append(u)
-
-            out = sp
+        if hx_name in fs.units:
+            _add_unit_once(fs.units[hx_name])
+        if pc_name in fs.units:
+            _add_unit_once(fs.units[pc_name])
 
         return out
 
@@ -183,7 +212,7 @@ def build_flowsheet(*,
 
     F16 = fs.new_exogenous_stream("F16", mol={})  # organic solvent makeup (TBP+diluent)
 
-    F9 = fs.new_exogenous_stream("F9", mol={}) # AHA feed
+    F9 = fs.new_exogenous_stream("F9", mol={})  # AHA feed
     set_aqueous_molarities(
         F9,
         Vdot_L_s=params.X2_STRIP_VDOT_L_S,
@@ -192,7 +221,7 @@ def build_flowsheet(*,
         water_molarity_pure=params.X2_STRIP_WATER_MOLARITY,
     )
 
-    F11 = fs.new_exogenous_stream("F11", mol={}) # Dilute nitric acid feed
+    F11 = fs.new_exogenous_stream("F11", mol={})  # Dilute nitric acid feed
     set_aqueous_molarities(
         F11,
         Vdot_L_s=params.X3_STRIP_VDOT_L_S,
@@ -231,7 +260,6 @@ def build_flowsheet(*,
     F22 = fs.new_process_stream("F22", phase="G", mol={})  # T102 vapour
 
     F23 = fs.new_process_stream("F23", phase="G", mol={})  # combined vapour
-
 
     # -------------------------------------------------------------------------
     # UNITS
@@ -283,7 +311,7 @@ def build_flowsheet(*,
             "H2O", "HNO3", "CsNO3", "Sr(NO3)2",
             "Nd(NO3)3", "Sm(NO3)3", "Eu(NO3)3", "Gd(NO3)3", "I_aq",
         ]),
-        nonextract_to_org=getattr(params, "X1_NONEXTRACT_TO_ORG", ["TBP", "Dodecane"]),
+        nonextract_to_org=getattr(params, "X1_NONEXTRACT_TO_ORG", ["Dodecane"]),
         N_max=params.X1_N_MAX,
         OA_max=params.X1_OA_MAX,
         N_balance_cap=getattr(params, "X1_N_BALANCE_CAP", 20),
@@ -297,23 +325,30 @@ def build_flowsheet(*,
     T101 = ContinuousEvaporatorAHA(
         "T101_Evaporator",
         T_set_K=params.EVAP_T_K,
+        P_set_torr=params.EVAP_P_TORR,  # <-- NEW
+        use_equilibrium=params.EVAP_USE_EQUILIBRIUM,  # <-- NEW
+
+        # legacy parameters (used only if use_equilibrium=False)
         frac_vap=params.T101_FRAC_VAP,
         min_liq_mol_s=params.T101_MIN_LIQ_MOL_S,
         latent_kJ_per_mol=params.EVAP_LATENT_KJ_PER_MOL,
         cp_liq_J_per_molK=params.EVAP_CP_LIQ_J_PER_MOLK,
+
         aha_name="AHA",
         aha_products=params.EVAP_AHA_PRODUCTS,
         aha_hno3_consumption=params.EVAP_AHA_HNO3_CONSUMPTION,
+
         coupled_by_water=params.EVAP_COUPLED_BY_WATER,
         water_name=params.EVAP_WATER_NAME,
+
         print_diagnostics=params.EVAP_PRINT_DIAGNOSTICS,
         print_every=params.EVAP_PRINT_EVERY,
     )
+
     T101.add_inlet("in", condition_to_unit(F17, "T101_Evaporator"))
     T101.add_outlet("liq", F19)
     T101.add_outlet("vap", F20)
     _add_unit(T101)
-
 
     X102 = MultiStageCentrifugalContactorAHA_Strip(
         "X102_AHA_Strip",
@@ -334,18 +369,26 @@ def build_flowsheet(*,
     T102 = ContinuousEvaporatorAHA(
         "T102_Evaporator",
         T_set_K=params.EVAP_T_K,
+        P_set_torr=params.EVAP_P_TORR,  # <-- NEW
+        use_equilibrium=params.EVAP_USE_EQUILIBRIUM,  # <-- NEW
+
+        # legacy parameters (used only if use_equilibrium=False)
         frac_vap=params.T102_FRAC_VAP,
         min_liq_mol_s=params.T102_MIN_LIQ_MOL_S,
         latent_kJ_per_mol=params.EVAP_LATENT_KJ_PER_MOL,
         cp_liq_J_per_molK=params.EVAP_CP_LIQ_J_PER_MOLK,
+
         aha_name="AHA",
         aha_products=params.EVAP_AHA_PRODUCTS,
         aha_hno3_consumption=params.EVAP_AHA_HNO3_CONSUMPTION,
+
         coupled_by_water=params.EVAP_COUPLED_BY_WATER,
         water_name=params.EVAP_WATER_NAME,
+
         print_diagnostics=params.EVAP_PRINT_DIAGNOSTICS,
         print_every=params.EVAP_PRINT_EVERY,
     )
+
     T102.add_inlet("in", condition_to_unit(F18, "T102_Evaporator"))
     T102.add_outlet("liq", F21)
     T102.add_outlet("vap", F22)
@@ -356,7 +399,6 @@ def build_flowsheet(*,
     M201.add_inlet("T102_vap", condition_to_unit(F22, "M201_EvapOverheadMixer"))
     M201.add_outlet("out", F23)
     _add_unit(M201)
-
 
     X103 = MultiStageCentrifugalContactorAHA_Strip(
         "X103_Final_Strip",
@@ -369,7 +411,7 @@ def build_flowsheet(*,
         N_balance_cap=getattr(params, "X3_N_BALANCE_CAP", 20),
     )
     X103.add_inlet("org_in", condition_to_unit(F10, "X103_Final_Strip"))
-    X103.add_inlet("aq_in", F11)
+    X103.add_inlet("aq_in", condition_to_unit(F11, "X103_Final_Strip"))
     X103.add_outlet("org_out", F13)
     X103.add_outlet("aq_out", F12)
     _add_unit(X103)
@@ -409,10 +451,6 @@ def build_flowsheet(*,
     last_norg_req = None
 
     def run_until(target_unit_name: str) -> None:
-        """
-        Run units in unit_sequence in order until and including target_unit_name.
-        Raises if target not found.
-        """
         found = False
         for u in unit_sequence:
             run_unit(u)
@@ -423,10 +461,6 @@ def build_flowsheet(*,
             raise KeyError(f"Unit '{target_unit_name}' not found in unit_sequence")
 
     def run_range(start_unit_name: str, stop_before_unit_name: str) -> None:
-        """
-        Run units from start_unit_name (inclusive) up to but not including stop_before_unit_name.
-        Useful for running conditioning between two known units.
-        """
         started = False
         for u in unit_sequence:
             if u.name == start_unit_name:
@@ -436,53 +470,13 @@ def build_flowsheet(*,
                     break
                 run_unit(u)
 
-    def get_conditioned_name(base_name: str, unit_name: str) -> str:
-        """
-        Given a base stream name and a unit, return the conditioned stream name if it exists.
-        We create streams like '{base}_T' and '{base}_p' in condition_to_unit(), possibly both.
-        The final 'out' is either base, base_T, base_p, or base_T_p (depending on need_T/need_p).
-        We detect the actually-wired inlet stream from the unit itself whenever possible.
-        """
-        # Prefer looking up the actual inlet stream name from the unit ports:
-        u = fs.units[unit_name]
-        # Guess port: most units use 'in' or 'aq_in'/'org_in'
-        for port in ("in", "aq_in", "org_in"):
-            if port in u.inlets and u.inlets[port].name.startswith(base_name):
-                return u.inlets[port].name
-        return base_name  # fallback
-
-    # Identify key conditioning units by name pattern so we can run them after resizing
-    def run_conditioning_for_stream_to_unit(stream_name: str, unit_name: str) -> None:
-        """
-        Run HX/PC units that condition a specific stream into a specific unit.
-        This is robust because those units were inserted into unit_sequence by condition_to_unit()
-        and are named 'HX__{stream}__to__{unit}' / 'PC__{stream}__to__{unit}'.
-        """
-        hx_name = f"HX__{stream_name}__to__{unit_name}"
-        pc_name = f"PC__{stream_name}__to__{unit_name}"
-
-        # Run in the order they appear in unit_sequence (HX then PC if both exist)
-        for u in unit_sequence:
-            if u.name == hx_name or u.name == pc_name:
-                run_unit(u)
-
     for it in range(1, max_iter + 1):
 
-        # -----------------------------------------------------------------
-        # (1) Run up to V101 so aqueous to X101 exists (F6 conditioned)
-        # -----------------------------------------------------------------
+        # (1) Run up to V101 so aqueous to X101 exists
         run_until("V101_Liquid_Buffer")
 
-        # -----------------------------------------------------------------
-        # (2) Size X101 organic makeup for current aqueous feed to X101
-        #     (X101.design uses its inlet streams; make sure conditioning to X101 is up to date)
-        # -----------------------------------------------------------------
-        # Ensure conditioning on F6->X101 and F7->X101 will be updated once we run M114 later,
-        # but X101.design_N_and_OA() does not depend on org_in composition, only A_tot.
-        # (A_tot is from aq_in; it is already current after run_until(V101).)
+        # (2) Size X101 organic makeup for current aqueous feed
         _, OA_design = X101.design_N_and_OA()
-
-        # Enforce minimum O/A if provided (prevents unrealistically low organic flow)
         OA1 = max(float(OA_design), float(getattr(params, "X1_OA_MIN", 0.0)))
 
         A_tot = X101.inlets["aq_in"].total_molar_flow()
@@ -501,34 +495,16 @@ def build_flowsheet(*,
             dil_name="Dodecane",
         )
 
-        # -----------------------------------------------------------------
-        # (3) Run through T101 so F8/F17/F19/F20 are current
-        #     This executes M114, X101, any HX/PC created for their inlets, and T101.
-        # -----------------------------------------------------------------
+        # (3) Run through T101 so F8/F17 etc are current
         run_until("T101_Evaporator")
 
-        # -----------------------------------------------------------------
-        # (4) Size X102 strip feed (F9) to hit AO2 for current organic feed (F8)
-        # -----------------------------------------------------------------
-        try:
-            _, AO2_design = X102.design_N_and_AO()
-        except ValueError as e:
-            raise RuntimeError(
-                f"X102 design failed: {e}\n"
-                f"Try increasing params.X2_AO_MAX or relaxing X2 required recovery.\n"
-                f"Current X2 D keys={list(params.X2_DISTRIBUTION_COEFFICIENTS.keys())}, "
-                f"required={params.X2_REQUIRED_RECOVERY_TO_AQ}"
-            ) from e
-
+        # (4) Size X102 strip feed (F9) for AO2 based on current org_in (F8)
+        _, AO2_design = X102.design_N_and_AO()
         AO2 = max(float(AO2_design), float(getattr(params, "X2_AO_MIN", 0.0)))
 
         O2_tot = X102.inlets["org_in"].total_molar_flow()
         A2_target = AO2 * O2_tot
         Vdot2 = A2_target / max(params.X2_STRIP_WATER_MOLARITY, EPS)
-
-        # Optional: enforce a minimum volumetric strip flow if you want
-        if hasattr(params, "X2_STRIP_VDOT_MIN_L_S"):
-            Vdot2 = max(float(Vdot2), float(params.X2_STRIP_VDOT_MIN_L_S))
 
         last_AO2 = float(AO2)
         last_Vdot2 = float(Vdot2)
@@ -541,41 +517,21 @@ def build_flowsheet(*,
             water_molarity_pure=params.X2_STRIP_WATER_MOLARITY,
         )
 
-        # IMPORTANT: update the conditioned copy of F9 that feeds X102 (if any)
-        run_conditioning_for_stream_to_unit("F9", "X102_AHA_Strip")
+        # With deterministic conditioning, we do NOT need to manually run conditioners here.
+        # When we next run units that depend on F9, the HX/PC will update their conditioned stream.
 
-        # -----------------------------------------------------------------
-        # (5) Run through M201 so X102, T102, M201 are current (F10/F18/F22/F23)
-        # -----------------------------------------------------------------
+        # (5) Run through M201 so X102/T102/M201 are current
         run_until("M201_EvapOverheadMixer")
 
-        # -----------------------------------------------------------------
-        # (6) Size X103 strip feed (F11) to hit AO3 for current organic feed to X103
-        #     CRITICAL: ensure conditioning between X102 and X103 has been run so X103.org_in is current.
-        # -----------------------------------------------------------------
-        # Run any conditioning units inserted after M201 and before X103 (e.g., HX__F10__to__X103..., PC__...)
+        # (6) Ensure any conditioning between M201 and X103 is executed, then size F11 for AO3
         run_range("M201_EvapOverheadMixer", "X103_Final_Strip")
 
-        try:
-            _, AO3_design = X103.design_N_and_AO()
-        except ValueError as e:
-            raise RuntimeError(
-                f"X103 design failed: {e}\n"
-                f"Try increasing params.X3_AO_MAX or relaxing X3 required recovery.\n"
-                f"Current X3 D={getattr(params, 'X3_DISTRIBUTION_COEFFICIENTS', None)}, "
-                f"required={getattr(params, 'X3_REQUIRED_RECOVERY_TO_AQ', None)}"
-            ) from e
-
-        # Enforce minimum A/O if provided (prevents unrealistically low strip flow)
+        _, AO3_design = X103.design_N_and_AO()
         AO3 = max(float(AO3_design), float(getattr(params, "X3_AO_MIN", 0.0)))
 
         O3_tot = X103.inlets["org_in"].total_molar_flow()
         A3_target = AO3 * O3_tot
         Vdot3 = A3_target / max(params.X3_STRIP_WATER_MOLARITY, EPS)
-
-        # Optional: enforce minimum strip flow
-        if hasattr(params, "X3_STRIP_VDOT_MIN_L_S"):
-            Vdot3 = max(float(Vdot3), float(params.X3_STRIP_VDOT_MIN_L_S))
 
         last_AO3 = float(AO3)
         last_Vdot3 = float(Vdot3)
@@ -588,27 +544,17 @@ def build_flowsheet(*,
             water_molarity_pure=params.X3_STRIP_WATER_MOLARITY,
         )
 
-        # If X103 aq_in is a conditioned copy of F11, update it now.
-        # If you wired X103.aq_in directly to F11, this is harmless (units won't exist).
-        run_conditioning_for_stream_to_unit("F11", "X103_Final_Strip")
-
-        # -----------------------------------------------------------------
         # (7) Run from X103 through V133 so recycle is updated
-        # -----------------------------------------------------------------
         run_until("V133_SolventPurge")
 
-        # -----------------------------------------------------------------
         # (8) Convergence
-        # -----------------------------------------------------------------
         curr_snap = snapshot_streams(fs)
         err = max_rel_change_all_streams(prev_snap, curr_snap, include_Tp=include_Tp)
         if err < tol:
             converged = True
             break
 
-        # -----------------------------------------------------------------
         # (9) Relax tears
-        # -----------------------------------------------------------------
         if tears:
             for sname in tears:
                 if sname not in fs.streams:
@@ -617,6 +563,12 @@ def build_flowsheet(*,
             prev_snap = snapshot_streams(fs)
         else:
             prev_snap = curr_snap
+
+    if not converged:
+        raise RuntimeError(
+            f"Recycle did not converge after {max_iter} iterations "
+            f"(tol={tol}, relax={relax}, tears={tears})."
+        )
 
     # -------------------------------------------------------------------------
     # Post-convergence: recompute required N at ACTUAL OA/AO used
@@ -628,16 +580,11 @@ def build_flowsheet(*,
         return 1.0 / s
 
     def _min_N_for_target_recovery(E: float, recovery: float, *, N_max: int = 200) -> int:
-        # Find smallest N such that (1 - xN/x0) >= recovery
-        # Handle corner cases
         if recovery <= 0.0:
             return 1
         if recovery >= 1.0:
-            # effectively impossible for finite N unless E huge; return cap
             return N_max
-
         target_xratio = max(1.0 - recovery, 0.0)
-
         for N in range(1, N_max + 1):
             if _xN_over_x0(E, N) <= target_xratio:
                 return N
@@ -648,85 +595,63 @@ def build_flowsheet(*,
         return v / 100.0 if v > 1.0 else v
 
     def recompute_N_for_X101_at_OA_used() -> tuple[int, dict[str, int]]:
-        """
-        X101 extraction: E = D * OA_used (D = org/aq, OA = O/A).
-        Recovery spec is to ORGANIC.
-        """
         OA = float(getattr(X101, "OA_used", 0.0))
-        D = getattr(X101, "D", {})  # should exist in your TBP class
-        req = getattr(X101, "required_recovery", {})  # to organic
-
+        D = getattr(X101, "D", {})
+        req = getattr(X101, "required_recovery", {})
         per_species: dict[str, int] = {}
         N_req = 1
-
         for sp, r in req.items():
             r = _as_fraction(r)
             if sp not in D:
-                continue  # or raise; up to you
+                continue
             Di = float(D[sp])
-
             if Di <= 0.0 or OA <= 0.0:
-                # If E ~ 0 then essentially no extraction -> requires "infinite" stages
                 n_sp = 200
             else:
                 E = Di * OA
                 n_sp = _min_N_for_target_recovery(E, r, N_max=max(getattr(X101, "N_max", 50), 200))
-
             per_species[sp] = int(n_sp)
             N_req = max(N_req, int(n_sp))
-
         return int(N_req), per_species
 
     def recompute_N_for_strip_at_AO_used(unit) -> tuple[int, dict[str, int]]:
-        """
-        Stripping: E = (AO_used)/D  (D = org/aq, AO = A/O)
-        Recovery spec is to AQUEOUS.
-        """
         AO = float(getattr(unit, "AO_used", 0.0))
         D = getattr(unit, "D", {})
         req = getattr(unit, "required_recovery_to_aq", {})
-
         per_species: dict[str, int] = {}
         N_req = 1
-
         for sp, r in req.items():
             r = _as_fraction(r)
             if sp not in D:
-                continue  # or raise
+                continue
             Di = float(D[sp])
-
             if Di <= 0.0:
-                # D ~ 0 => overwhelmingly aqueous => stripping essentially complete
                 n_sp = 1
             elif AO <= 0.0:
                 n_sp = 200
             else:
                 E = AO / Di
                 n_sp = _min_N_for_target_recovery(E, r, N_max=max(getattr(unit, "N_max", 50), 200))
-
             per_species[sp] = int(n_sp)
             N_req = max(N_req, int(n_sp))
-
         return int(N_req), per_species
 
-    # Compute required stages at actual ratios (after final iteration)
     X101_N_req_at_OA_used, X101_N_req_by_species = recompute_N_for_X101_at_OA_used()
     X102_N_req_at_AO_used, X102_N_req_by_species = recompute_N_for_strip_at_AO_used(X102)
     X103_N_req_at_AO_used, X103_N_req_by_species = recompute_N_for_strip_at_AO_used(X103)
 
-    # Optional diagnostic print
     print("\n--- Stage back-calculation at actual ratios ---")
-    print(f"X101: OA_used={getattr(X101,'OA_used',None)} -> N_required={X101_N_req_at_OA_used} (spec species: {X101_N_req_by_species})")
-    print(f"X102: AO_used={getattr(X102,'AO_used',None)} -> N_required={X102_N_req_at_AO_used} (spec species: {X102_N_req_by_species})")
-    print(f"X103: AO_used={getattr(X103,'AO_used',None)} -> N_required={X103_N_req_at_AO_used} (spec species: {X103_N_req_by_species})")
+    print(f"X101: OA_used={getattr(X101,'OA_used',None)} -> N_required={X101_N_req_at_OA_used} (spec: {X101_N_req_by_species})")
+    print(f"X102: AO_used={getattr(X102,'AO_used',None)} -> N_required={X102_N_req_at_AO_used} (spec: {X102_N_req_by_species})")
+    print(f"X103: AO_used={getattr(X103,'AO_used',None)} -> N_required={X103_N_req_at_AO_used} (spec: {X103_N_req_by_species})")
     print("---------------------------------------------\n")
 
     # -------------------------------------------------------------------------
     # Report / store chosen parameters
     # -------------------------------------------------------------------------
     fs.design = {
-        "converged": True,
-        "iterations": it,
+        "converged": bool(converged),
+        "iterations": int(it),
         "tol": float(tol),
         "relax": float(relax),
         "tear_streams": list(tears),
@@ -758,7 +683,6 @@ def build_flowsheet(*,
 
         "X103_N_required_at_AO_used": int(X103_N_req_at_AO_used),
         "X103_N_required_at_AO_used_by_species": dict(X103_N_req_by_species),
-
     }
 
     print("\n--- Design / sizing decisions (final iteration) ---")

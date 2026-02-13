@@ -56,6 +56,9 @@ class InputParameters:
     # -------------------------------------------------------------------------
     # UNIT / VESSEL OPERATING CONDITIONS
     # -------------------------------------------------------------------------
+    EVAP_P_TORR = 70.0
+    EVAP_P_PA = 70.0 / 760.0 * 101325.0  # ≈ 9330 Pa
+
     UNIT_CONDITIONS = {
         "R101_Dissolver": {"T": 373.15, "p": 1e5},
         "V101_Liquid_Buffer": {"T": 298.15, "p": 1e5},
@@ -63,9 +66,14 @@ class InputParameters:
         "X102_AHA_Strip": {"T": 298.15, "p": 1e5},
         "X103_Final_Strip": {"T": 323.15, "p": 1e5},
         "V133_SolventPurge": {"T": 298.15, "p": 1e5},
-        "T101_Evaporator": {"T": 388.15, "p": 1e5},
-        "T102_Evaporator": {"T": 388.15, "p": 1e5},
-        "M201_EvapOverheadMixer": {"T": 388.15, "p": 1e5},
+
+        # --- UPDATED: Vacuum evaporators ---
+        "T101_Evaporator": {"T": 323.15, "p": EVAP_P_PA},
+        "T102_Evaporator": {"T": 323.15, "p": EVAP_P_PA},
+
+        # Optional: overhead mixer conditions (if it's “downstream of condensers” keep 1e5;
+        # if it's literally mixing vacuum vapours, match vacuum)
+        "M201_EvapOverheadMixer": {"T": 323.15, "p": EVAP_P_PA},
     }
 
     # -------------------------------------------------------------------------
@@ -108,6 +116,7 @@ class InputParameters:
         "Pu(NO3)4": 4.0,
         "Np(NO3)4": 3.5,
         "HTcO4": 0.5,
+        "TBP": 1e4, # Worst case scenario - low concentration of nitric acid and minimal metal salts
     }
 
     # minimum recovery-to-organic targets used by design_N_and_OA()
@@ -141,6 +150,7 @@ class InputParameters:
         "Pu(NO3)4": 1e-2,
         "Np(NO3)4": 1e-3,  # assume Np(V)
         "HTcO4": 0.5,
+        "TBP": 1e4,  # Worst case scenario - low concentration of nitric acid and minimal metal salts
     }
 
     # -------------------------------------------------------------------------
@@ -156,7 +166,7 @@ class InputParameters:
     X2_N_BALANCE_CAP = 20
 
     X2_NONTRANSFER_KEEP_IN_AQ = ["H2O", "HNO3", "AHA"]
-    X2_NONTRANSFER_KEEP_IN_ORG = ["TBP", "Dodecane"]
+    X2_NONTRANSFER_KEEP_IN_ORG = ["Dodecane"]
 
     # -------------------------------------------------------------------------
     # X3 FINAL STRIP (dilute HNO3) – fixed composition via molarity ratios
@@ -169,6 +179,7 @@ class InputParameters:
     X3_DISTRIBUTION_COEFFICIENTS = { # Pessimistic values - find in more detail later
         "HTcO4": 0.93,
         "UO2(NO3)2": 0.25,
+        "TBP": 1e4, # Worst case scenario - low concentration of nitric acid and minimal metal salts
     }
 
     # Design targets for sizing A/O (pick something; adjust as desired)
@@ -187,11 +198,14 @@ class InputParameters:
     PURGE_FRACTION_SOLVENT_LOOP = 0.05
 
     # -------------------------------------------------------------------------
-    # EVAPORATORS T101 / T102 (waste concentration + AHA destruction)
+    # EVAPORATORS T101 / T102 (vacuum: 50C, 70 torr)
     # -------------------------------------------------------------------------
-    EVAP_T_K = 388.15  # 115C
 
-    # Nominal vapour split fractions (H2O controls the coupled extent theta)
+    EVAP_T_K = 323.15  # 50C
+    EVAP_USE_EQUILIBRIUM = True  # <-- NEW: flash-like split using K=Psat/P
+    # EVAP_P_TORR already defined above (70.0)
+
+    # frac_vap retained only for legacy mode if EVAP_USE_EQUILIBRIUM=False
     T101_FRAC_VAP = {"H2O": 0.85, "HNO3": 0.60}
     T102_FRAC_VAP = {"H2O": 0.85, "HNO3": 0.60}
 
@@ -199,21 +213,23 @@ class InputParameters:
     T101_MIN_LIQ_MOL_S = {"H2O": 0.25, "HNO3": 0.01}
     T102_MIN_LIQ_MOL_S = {"H2O": 0.05, "HNO3": 1e-4}
 
-    # Simple energetics
-    EVAP_LATENT_KJ_PER_MOL = {"H2O": 40.7, "HNO3": 39.0}
+    # Energetics
+    EVAP_LATENT_KJ_PER_MOL = {"H2O": 43.99, "HNO3": 39.0}
     EVAP_CP_LIQ_J_PER_MOLK = 75.0
 
     # AHA destruction (lumped). Full conversion each pass.
     EVAP_AHA_PRODUCTS = {"AcOH": 1.0, "N2O": 0.5}
     EVAP_AHA_HNO3_CONSUMPTION = 0.0
 
-    # Coupling behaviour
+    # Coupling behaviour (legacy mode only)
     EVAP_COUPLED_BY_WATER = True
     EVAP_WATER_NAME = "H2O"
+
     # Diagnostics
-    EVAP_PRINT_DIAGNOSTICS = True  # master on/off
-    EVAP_PRINT_EVERY = 25  # print every N iterations
-    EVAP_PRINT_STREAMS = True  # print inlet/outlet summaries
+    EVAP_PRINT_DIAGNOSTICS = True
+    EVAP_PRINT_EVERY = 25
+    EVAP_PRINT_STREAMS = True
+
 
 
 
