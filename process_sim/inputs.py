@@ -271,7 +271,7 @@ class InputParameters:
 
     E104_T_K = 373.15  # 100C
     E104_P_PA = 100000
-    E104_TARGET_HNO3_MASS_FRAC = 0.45
+    E104_TARGET_HNO3_MASS_FRAC = 0.74 # 45% mol fraction (taken from Kevin's table)
 
     # -------------------------------------------------------------------------
     # MAKEUP ACID SUPPLY: treat as 70 vol% HNO3 + 30 vol% water
