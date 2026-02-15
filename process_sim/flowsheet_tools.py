@@ -681,98 +681,286 @@ def solve_recycles(
     return RecycleResult(False, max_iter, hist[-1] if hist else float("inf"), hist)
 
 # -----------------------------------------------------------------------------
-# Deterministic / idempotent conditioning support
+# Deterministic / idempotent conditioning support (robust + simple names)
 # -----------------------------------------------------------------------------
 
-def _cond_key(src_name: str, unit_name: str, T: float | None, p: float | None) -> tuple:
-    # Keys must be hashable and stable
-    return (str(src_name), str(unit_name),
-            None if T is None else float(T),
-            None if p is None else float(p))
+def _base_name(name: str) -> str:
+    s = str(name)
+    if "-" in s:
+        head = s.split("-", 1)[0]
+        if head.startswith("F"):
+            return head
+    return s
+
+
+def _make_unique_stream_name(fs: "Flowsheet", preferred: str, *, target: float, kind: str) -> str:
+    if preferred not in fs.streams:
+        return preferred
+
+    s_existing = fs.streams[preferred]
+    if kind == "T":
+        if abs(float(getattr(s_existing, "T", 0.0)) - float(target)) <= 1e-9:
+            return preferred
+        candidate = f"{preferred}{int(round(float(target)))}"  # F101-T323
+    else:
+        if abs(float(getattr(s_existing, "p", 0.0)) - float(target)) <= 1e-6:
+            return preferred
+        candidate = f"{preferred}{int(round(float(target)))}"  # F101-p9333
+
+    if candidate not in fs.streams:
+        return candidate
+
+    i = 2
+    while True:
+        cand2 = f"{candidate}_{i}"
+        if cand2 not in fs.streams:
+            return cand2
+        i += 1
+
+
+def _cond_key_simple(base: str, kind: str, target: float | None, phase: str) -> tuple:
+    return (str(base), str(kind), None if target is None else float(target), str(phase))
+
+
+def _copy_flow(src: "Stream", dst: "Stream") -> None:
+    """
+    Best-effort copy so conditioned streams are never zero before HX/PC runs.
+    Works with your Stream API as seen in your codebase (set/species dict).
+    """
+    # Copy phase (caller usually sets already)
+    dst.phase = src.phase
+
+    # Try common representations
+    if hasattr(src, "mol") and isinstance(getattr(src, "mol"), dict):
+        # Clear then set
+        # (assumes Stream.set() exists, as used throughout your flowsheet)
+        for k in list(getattr(dst, "mol", {}).keys()) if hasattr(dst, "mol") else []:
+            # if dst.mol exists, clear it
+            try:
+                dst.mol[k] = 0.0
+            except Exception:
+                pass
+        for sp, n in src.mol.items():
+            if float(n) != 0.0:
+                dst.set(sp, float(n))
+        return
+
+    # Fallback: if dense representation exists
+    if hasattr(src, "to_dense") and hasattr(dst, "from_dense"):
+        dst.from_dense(src.to_dense())
+        return
+
+    # If we can't copy, we do nothing (HX/PC should still populate when executed)
 
 
 def get_or_create_conditioned_stream(
-    fs: Flowsheet,
+    fs: "Flowsheet",
     *,
-    src: Stream,
-    unit_name: str,
+    src: "Stream",
+    unit_name: str,          # kept for API compatibility
     target_T: float | None,
     target_p: float | None,
     make_HX: callable,
     make_PC: callable,
-) -> Stream:
+) -> "Stream":
     """
-    Returns a deterministic conditioned stream for feeding `unit_name`.
+    Deterministic / idempotent conditioning with simple names:
+      - Temp-conditioned stream:     <base>-T
+      - Pressure-conditioned stream: <base>-p
 
-    - Creates at most one HX and one PC (and at most one output stream per step)
-      for the (src.name, unit_name, target_T, target_p) signature.
-    - Subsequent calls reuse the previously created objects.
+    Robustness:
+      - Records conditioner unit names used/created in fs._conditioning_units_created (ordered).
+      - Pre-populates conditioned stream composition from upstream to avoid temporary zeros.
     """
-    # Attach a cache lazily
     if not hasattr(fs, "_conditioning_cache"):
         fs._conditioning_cache = {}  # type: ignore[attr-defined]
-
     cache: dict = fs._conditioning_cache  # type: ignore[attr-defined]
-    key = _cond_key(src.name, unit_name, target_T, target_p)
 
-    if key in cache:
-        return cache[key]
+    # record the exact conditioner units involved in THIS call, in execution order
+    used_units: list[str] = []
+    fs._conditioning_units_created = used_units  # type: ignore[attr-defined]
 
     out = src
+    base = _base_name(src.name)
 
-    # HX step (if needed)
-    if target_T is not None and abs(float(out.T) - float(target_T)) > 1e-9:
-        hx_name = f"HX__{src.name}__to__{unit_name}"
-        sT_name = f"{src.name}__to__{unit_name}__T"
-
-        # stream
-        if sT_name in fs.streams:
-            sT = fs.streams[sT_name]
+    # ---- HX (T) ----
+    if target_T is not None:
+        keyT = _cond_key_simple(base, "T", float(target_T), out.phase)
+        if keyT in cache:
+            out = cache[keyT]
         else:
-            sT = fs.new_process_stream(sT_name, phase=out.phase, mol={})
-        sT.phase = out.phase
-        sT.T = float(target_T)
-        sT.p = float(out.p)
+            preferred = f"{base}-T"
+            sT_name = _make_unique_stream_name(fs, preferred, target=float(target_T), kind="T")
 
-        # unit
-        if hx_name in fs.units:
-            hx = fs.units[hx_name]
+            if sT_name in fs.streams:
+                sT = fs.streams[sT_name]
+            else:
+                sT = fs.new_process_stream(sT_name, phase=out.phase, mol={})
+
+            _copy_flow(out, sT)          # <-- critical: avoid zero-flow before HX runs
+            sT.T = float(target_T)
+            sT.p = float(out.p)
+
+            hx_name = f"HX__{sT_name}"
+            if hx_name in fs.units:
+                hx = fs.units[hx_name]
+            else:
+                hx = make_HX(hx_name, float(target_T))
+                fs.add_unit(hx)
+
+            hx.inlets["in"] = out
+            hx.outlets["out"] = sT
+            sT.producer = hx.name
+
+            cache[keyT] = sT
+            out = sT
+
+        # record HX producer if present
+        if getattr(out, "producer", None) and str(out.producer).startswith("HX__"):
+            used_units.append(str(out.producer))
+
+    # ---- PC (p) ----
+    if target_p is not None:
+        keyP = _cond_key_simple(base, "p", float(target_p), out.phase)
+        if keyP in cache:
+            out = cache[keyP]
         else:
-            hx = make_HX(hx_name, float(target_T))
-            fs.add_unit(hx)
+            preferred = f"{base}-p"
+            sp_name = _make_unique_stream_name(fs, preferred, target=float(target_p), kind="p")
 
-        hx.inlets["in"] = out
-        hx.outlets["out"] = sT
-        sT.producer = hx.name
+            if sp_name in fs.streams:
+                sp = fs.streams[sp_name]
+            else:
+                sp = fs.new_process_stream(sp_name, phase=out.phase, mol={})
 
-        out = sT
+            _copy_flow(out, sp)          # <-- critical: avoid zero-flow before PC runs
+            sp.p = float(target_p)
+            sp.T = float(out.T)
 
-    # PC step (if needed)
-    if target_p is not None and abs(float(out.p) - float(target_p)) > 1e-6:
-        pc_name = f"PC__{src.name}__to__{unit_name}"
-        sp_name = f"{src.name}__to__{unit_name}__p"
+            pc_name = f"PC__{sp_name}"
+            if pc_name in fs.units:
+                pc = fs.units[pc_name]
+            else:
+                pc = make_PC(pc_name, float(target_p))
+                fs.add_unit(pc)
 
-        # stream
-        if sp_name in fs.streams:
-            sp = fs.streams[sp_name]
-        else:
-            sp = fs.new_process_stream(sp_name, phase=out.phase, mol={})
-        sp.phase = out.phase
-        sp.p = float(target_p)
-        sp.T = float(out.T)
+            pc.inlets["in"] = out
+            pc.outlets["out"] = sp
+            sp.producer = pc.name
 
-        # unit
-        if pc_name in fs.units:
-            pc = fs.units[pc_name]
-        else:
-            pc = make_PC(pc_name, float(target_p))
-            fs.add_unit(pc)
+            cache[keyP] = sp
+            out = sp
 
-        pc.inlets["in"] = out
-        pc.outlets["out"] = sp
-        sp.producer = pc.name
+        if getattr(out, "producer", None) and str(out.producer).startswith("PC__"):
+            used_units.append(str(out.producer))
 
-        out = sp
-
-    cache[key] = out
     return out
+
+def size_acid_stock_and_water_makeup_for_targets(
+    recycle: Stream,
+    acid_stock: Stream,
+    water_makeup: Stream,
+    *,
+    target_hno3_mol_s: float,
+    target_h2o_mol_s: float,
+    stock_water_per_hno3_mol: float,
+) -> None:
+    """
+    Size:
+      - acid_stock: provides all required HNO3 deficit, with fixed accompanying water
+      - water_makeup: supplies any remaining water deficit
+
+    Assumes recycle has already been purged so it does not exceed targets.
+    """
+    if target_hno3_mol_s < 0 or target_h2o_mol_s < 0:
+        raise ValueError("targets must be >= 0")
+    if stock_water_per_hno3_mol < 0:
+        raise ValueError("stock_water_per_hno3_mol must be >= 0")
+
+    rec_hno3 = recycle.get("HNO3")
+    rec_h2o  = recycle.get("H2O")
+
+    # deficits (should be >=0 if purge is chosen correctly)
+    d_hno3 = max(target_hno3_mol_s - rec_hno3, 0.0)
+    d_h2o  = max(target_h2o_mol_s  - rec_h2o,  0.0)
+
+    # Acid stock provides all HNO3 deficit, and brings some water with it
+    stock_hno3 = d_hno3
+    stock_h2o  = stock_water_per_hno3_mol * stock_hno3
+
+    # Remaining water to hit the water target
+    water_only = max(d_h2o - stock_h2o, 0.0)
+
+    # write streams
+    acid_stock.mol = {}
+    if stock_hno3 > EPS:
+        acid_stock.set("HNO3", stock_hno3)
+    if stock_h2o > EPS:
+        acid_stock.set("H2O", stock_h2o)
+
+    water_makeup.mol = {}
+    if water_only > EPS:
+        water_makeup.set("H2O", water_only)
+
+def compute_required_purge_fraction_with_stock_acid(
+    s38: Stream,
+    *,
+    target_hno3_mol_s: float,
+    target_h2o_mol_s: float,
+    stock_water_per_hno3_mol: float,
+    f_min: float = 0.0,
+    f_max: float = 0.999,
+) -> float:
+    """
+    Choose purge fraction f on F38 such that, after purge, you can meet BOTH:
+      HNO3_target using stock acid (which brings fixed water per HNO3),
+      and H2O_target using optional water trim (>=0 only).
+
+    Let recycle after purge:
+      H_rec = (1-f)*H38
+      W_rec = (1-f)*W38
+
+    You add stock acid to make up HNO3 deficit:
+      H_stock = max(H_target - H_rec, 0)
+      W_stock = r * H_stock, r=stock_water_per_hno3_mol
+
+    You can add pure water trim:
+      W_trim = max(W_target - W_rec - W_stock, 0)
+
+    Feasibility requires:
+      W_rec + W_stock <= W_target
+      and H_rec <= H_target (otherwise you'd need "negative" stock acid)
+    """
+    H38 = float(s38.get("HNO3"))
+    W38 = float(s38.get("H2O"))
+    r = float(stock_water_per_hno3_mol)
+
+    # If no recycle content, no need to purge
+    if H38 <= EPS and W38 <= EPS:
+        return 0.0
+
+    # We enforce (1-f) <= 1
+    keep_max = 1.0
+
+    # Constraint A: H_rec <= H_target  => (1-f) <= H_target/H38
+    if H38 > EPS:
+        keep_max = min(keep_max, float(target_hno3_mol_s) / H38)
+    # If H38 ~ 0, H constraint irrelevant
+
+    # Constraint B: W_rec + r*(H_target - H_rec) <= W_target
+    # => (1-f)*(W38 + r*H38) <= W_target - r*H_target
+    denom = (W38 + r * H38)
+    rhs = float(target_h2o_mol_s) - r * float(target_hno3_mol_s)
+
+    if denom > EPS:
+        keep_max = min(keep_max, rhs / denom)
+    else:
+        # denom ~ 0 means recycle has essentially no (W + rH); no extra constraint
+        pass
+
+    # Bound keep fraction to [0,1]
+    keep = max(min(keep_max, 1.0), 0.0)
+    f = 1.0 - keep
+
+    # Clip to practical bounds
+    return float(min(max(f, f_min), f_max))
