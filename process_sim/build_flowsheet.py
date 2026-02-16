@@ -96,22 +96,7 @@ def build_flowsheet(*,
                     relax: float = 0.5,
                     include_Tp: bool = True,
                     tear_stream_names: Optional[Iterable[str]] = None) -> Flowsheet:
-    """
-    Full dissolver + TBP extraction + AHA strip + evaporators + calcination + offgas + HNO3 recovery
-    + KO water recycle + TSA iodine polish + solvent purge/recycle.
 
-    Key fixes vs your current version:
-      1) **Remove the premature V104 run at the start of each iteration.**
-         Running V104 before E104 has produced F38 causes an inconsistent F2_R at iteration start.
-         (This is what was biting you: you were “using F38 before it exists”.)
-
-      2) **Move M105 (water-trim mixer) BEFORE M102 in the unit_sequence.**
-         M102 consumes F2_WM, but in your code M105 was executed late (after KO/V105),
-         so F2_WM was stale when M102 ran.
-
-      3) Purge fraction for V104 is computed **after E104** in each iteration, then V104 is run.
-         This updates F2_R for the next iteration’s acid makeup sizing (standard fixed-point).
-    """
     params = InputParameters()
     reg = build_registry()
     fs = Flowsheet(reg, default_T=params.DEFAULT_T_K, default_p=params.DEFAULT_P_PA)
@@ -278,11 +263,12 @@ def build_flowsheet(*,
 
     F23 = fs.new_process_stream("F23", phase="G", mol={})  # combined vapour
 
-    F101 = fs.new_process_stream("F101", phase="L", mol={})  # CF101 aqueous -> E101
-    F105 = fs.new_process_stream("F105", phase="L", mol={})  # CF101 recovered organics
+    # --- renamed from 100-series ---
+    F53 = fs.new_process_stream("F53", phase="L", mol={})  # CF101 aqueous -> E101 (was F101)
+    F54 = fs.new_process_stream("F54", phase="L", mol={})  # CF101 recovered organics (was F105)
 
-    F102 = fs.new_process_stream("F102", phase="L", mol={})  # CF102 aqueous -> E102
-    F106 = fs.new_process_stream("F106", phase="L", mol={})  # CF102 recovered organics
+    F55 = fs.new_process_stream("F55", phase="L", mol={})  # CF102 aqueous -> E102 (was F102)
+    F56 = fs.new_process_stream("F56", phase="L", mol={})  # CF102 recovered organics (was F106)
 
     F24 = fs.new_process_stream("F24", phase="L", mol={})  # E103 liquid
     F25 = fs.new_process_stream("F25", phase="G", mol={})  # E103 vapour
@@ -297,21 +283,22 @@ def build_flowsheet(*,
 
     F41 = fs.new_process_stream("F41", phase="G", mol={})  # mixed offgas (F32 + F3 + F40)
 
-    F112 = fs.new_process_stream("F112", phase="L", mol={})  # post-coalescer aqueous to E103
-    F113 = fs.new_process_stream("F113", phase="L", mol={})  # recovered organics from CF103
+    # --- renamed from 100-series ---
+    F57 = fs.new_process_stream("F57", phase="L", mol={})  # post-coalescer aqueous to E103 (was F112)
+    F58 = fs.new_process_stream("F58", phase="L", mol={})  # recovered organics from CF103 (was F113)
 
     F27 = fs.new_process_stream("F27", phase="S", mol={})  # U3O8 product
     F28 = fs.new_process_stream("F28", phase="G", mol={})  # O2 offgas from R202
 
     F2_R = fs.new_process_stream("F2_R", phase="L", mol={})     # recycle acid back to M102
-    F138 = fs.new_process_stream("F138", phase="L", mol={})     # purge from F38
+    F59 = fs.new_process_stream("F59", phase="L", mol={})       # purge from F38 (was F138)
 
     F44 = fs.new_process_stream("F44", phase="G", mol={})       # treated gas
 
     F45 = fs.new_process_stream("F45", phase="L", mol={})       # KO water
     F46 = fs.new_process_stream("F46", phase="G", mol={})       # dry gas
 
-    F145 = fs.new_process_stream("F145", phase="L", mol={})     # purge from KO water
+    F60 = fs.new_process_stream("F60", phase="L", mol={})       # purge from KO water (was F145)
     F45_R = fs.new_process_stream("F45_R", phase="L", mol={})   # recycle KO water
     F2_WM = fs.new_process_stream("F2_WM", phase="L", mol={})   # mixed water trim (F2_W + F45_R)
 
@@ -426,8 +413,8 @@ def build_flowsheet(*,
         print_diagnostics=params.COAL_PRINT_DIAGNOSTICS,
     )
     CF101.add_inlet("in", condition_to_unit(F17, "CF101_Coalescer_X101_to_E101"))
-    CF101.add_outlet("aq_out", F101)
-    CF101.add_outlet("org_recovered", F105)
+    CF101.add_outlet("aq_out", F53)
+    CF101.add_outlet("org_recovered", F54)
     _add_unit(CF101)
 
     E101 = ContinuousEvaporatorAHA(
@@ -447,7 +434,7 @@ def build_flowsheet(*,
         print_diagnostics=params.EVAP_PRINT_DIAGNOSTICS,
         print_every=params.EVAP_PRINT_EVERY,
     )
-    E101.add_inlet("in", condition_to_unit(F101, "E101_Evaporator"))
+    E101.add_inlet("in", condition_to_unit(F53, "E101_Evaporator"))
     E101.add_outlet("liq", F19)
     E101.add_outlet("vap", F20)
     _add_unit(E101)
@@ -485,8 +472,8 @@ def build_flowsheet(*,
         print_diagnostics=params.COAL_PRINT_DIAGNOSTICS,
     )
     CF102.add_inlet("in", condition_to_unit(F18, "CF102_Coalescer_X102_to_E102"))
-    CF102.add_outlet("aq_out", F102)
-    CF102.add_outlet("org_recovered", F106)
+    CF102.add_outlet("aq_out", F55)
+    CF102.add_outlet("org_recovered", F56)
     _add_unit(CF102)
 
     E102 = ContinuousEvaporatorAHA(
@@ -506,7 +493,7 @@ def build_flowsheet(*,
         print_diagnostics=params.EVAP_PRINT_DIAGNOSTICS,
         print_every=params.EVAP_PRINT_EVERY,
     )
-    E102.add_inlet("in", condition_to_unit(F102, "E102_Evaporator"))
+    E102.add_inlet("in", condition_to_unit(F55, "E102_Evaporator"))
     E102.add_outlet("liq", F21)
     E102.add_outlet("vap", F22)
     _add_unit(E102)
@@ -550,8 +537,8 @@ def build_flowsheet(*,
         print_diagnostics=params.COAL_PRINT_DIAGNOSTICS,
     )
     CF103.add_inlet("in", condition_to_unit(F12, "CF103_Coalescer_X103_to_E103"))
-    CF103.add_outlet("aq_out", F112)
-    CF103.add_outlet("org_recovered", F113)
+    CF103.add_outlet("aq_out", F57)
+    CF103.add_outlet("org_recovered", F58)
     _add_unit(CF103)
 
     E103 = SpeciesSplitter(
@@ -559,7 +546,7 @@ def build_flowsheet(*,
         frac_to_A=params.E103_FRAC_TO_VAP,
         default_to_A=0.0,
     )
-    E103.add_inlet("in", condition_to_unit(F112, "E103_Evaporator100C"))
+    E103.add_inlet("in", condition_to_unit(F57, "E103_Evaporator100C"))
     E103.add_outlet("A", F25)
     E103.add_outlet("B", F24)
     _add_unit(E103)
@@ -657,7 +644,7 @@ def build_flowsheet(*,
 
     V104 = Splitter("V104_AcidPurge", frac_to_A=0.0)  # frac updated each iteration (after E104)
     V104.add_inlet("in", condition_to_unit(F38, "V104_AcidPurge"))
-    V104.add_outlet("A", F138)  # purge
+    V104.add_outlet("A", F59)  # purge
     V104.add_outlet("B", F2_R)  # recycle
     _add_unit(V104)
 
@@ -695,7 +682,7 @@ def build_flowsheet(*,
 
     V105 = Splitter("V105_KOWaterPurge", frac_to_A=float(params.KO_WATER_PURGE_FRAC))
     V105.add_inlet("in", condition_to_unit(F45, "V105_KOWaterPurge"))
-    V105.add_outlet("A", F145)   # purge
+    V105.add_outlet("A", F60)   # purge
     V105.add_outlet("B", F45_R)  # recycle
     _add_unit(V105)
 
@@ -757,27 +744,27 @@ def build_flowsheet(*,
     _add_unit(TSA101B)
 
     # Solvent recovery + purge
-    F107 = fs.new_process_stream("F107", phase="L", mol={})
+    F61 = fs.new_process_stream("F61", phase="L", mol={})  # was F107
 
     M132 = Mixer("M132_CoalescerOrgMixer")
-    M132.add_inlet("cf101_rec", F105)
-    M132.add_inlet("cf102_rec", F106)
-    M132.add_inlet("cf103_rec", F113)
-    M132.add_outlet("out", F107)
+    M132.add_inlet("cf101_rec", F54)
+    M132.add_inlet("cf102_rec", F56)
+    M132.add_inlet("cf103_rec", F58)
+    M132.add_outlet("out", F61)
     _add_unit(M132)
 
-    F107_to_F13 = condition_to_unit(F107, "M133_OrgRecoveryMixer")
+    F61_to_F13 = condition_to_unit(F61, "M133_OrgRecoveryMixer")
 
-    F13_mix = fs.new_process_stream("F13_mix", phase="L", mol={})
+    F62 = fs.new_process_stream("F62", phase="L", mol={})
     M133 = Mixer("M133_OrgRecoveryMixer")
     M133.add_inlet("main_org", F13)
-    M133.add_inlet("recovered_org", F107_to_F13)
-    M133.add_outlet("out", F13_mix)
+    M133.add_inlet("recovered_org", F61_to_F13)
+    M133.add_outlet("out", F62)
     _add_unit(M133)
 
     F13_T = fs.new_process_stream("F13_T", phase="L", mol={})
     HX133 = HeaterCooler("HX133_SolventCooldown", set_T=unit_cond["V133_SolventPurge"]["T"])
-    HX133.add_inlet("in", F13_mix)
+    HX133.add_inlet("in", F62)
     HX133.add_outlet("out", F13_T)
     _add_unit(HX133)
 
@@ -899,10 +886,7 @@ def build_flowsheet(*,
             set_air(F52A, 0.0, 0.0)
 
     for it in range(1, max_iter + 1):
-        # ---------------------------------------------------------------------
         # (A) SIZE ACID MAKEUPS USING CURRENT RECYCLE (F2_R) STATE
-        #     (V104 will be updated later in this iteration after E104 runs)
-        # ---------------------------------------------------------------------
         size_acid_stock_and_water_makeup_for_targets(
             recycle=fs.streams["F2_R"],
             acid_stock=F2_M,
@@ -912,14 +896,10 @@ def build_flowsheet(*,
             stock_water_per_hno3_mol=params.ACID_STOCK_WATER_PER_HNO3_MOL,
         )
 
-        # ---------------------------------------------------------------------
         # (B) RUN FRONT-END TO GET AQUEOUS FLOW FOR X101
-        # ---------------------------------------------------------------------
         run_until("V101_Liquid_Buffer")
 
-        # ---------------------------------------------------------------------
         # (C) SIZE X101 ORGANIC MAKEUP FOR CURRENT AQUEOUS FEED
-        # ---------------------------------------------------------------------
         _, OA_design = X101.design_N_and_OA()
         OA1 = max(float(OA_design), float(getattr(params, "X1_OA_MIN", 0.0)))
         A_tot = X101.inlets["aq_in"].total_molar_flow()
@@ -938,14 +918,10 @@ def build_flowsheet(*,
             dil_name="Dodecane",
         )
 
-        # ---------------------------------------------------------------------
         # (D) RUN THROUGH E101 SO F8/F17 ARE CURRENT
-        # ---------------------------------------------------------------------
         run_until("E101_Evaporator")
 
-        # ---------------------------------------------------------------------
         # (E) SIZE X102 STRIP FEED (F9) BASED ON CURRENT ORG_IN (F8)
-        # ---------------------------------------------------------------------
         _, AO2_design = X102.design_N_and_AO()
         AO2 = max(float(AO2_design), float(getattr(params, "X2_AO_MIN", 0.0)))
 
@@ -964,14 +940,10 @@ def build_flowsheet(*,
             water_molarity_pure=params.X2_STRIP_WATER_MOLARITY,
         )
 
-        # ---------------------------------------------------------------------
         # (F) RUN THROUGH M201 SO X102/E102/M201 ARE CURRENT
-        # ---------------------------------------------------------------------
         run_until("M201_EvapOverheadMixer")
 
-        # ---------------------------------------------------------------------
         # (G) ENSURE CONDITIONING BETWEEN M201 AND X103 EXECUTED, THEN SIZE F11 FOR AO3
-        # ---------------------------------------------------------------------
         run_range("M201_EvapOverheadMixer", "X103_Final_Strip")
 
         _, AO3_design = X103.design_N_and_AO()
@@ -992,9 +964,7 @@ def build_flowsheet(*,
             water_molarity_pure=params.X3_STRIP_WATER_MOLARITY,
         )
 
-        # ---------------------------------------------------------------------
         # (H) RUN THROUGH OFFGAS MIXING SO F41 IS CURRENT
-        # ---------------------------------------------------------------------
         run_until("M302_OffgasMixer")
 
         # (H1) SIZE ABSORBER WATER FEED F39 BASED ON CURRENT F41 TOTAL FLOW (molar L/G)
@@ -1008,9 +978,7 @@ def build_flowsheet(*,
         F39.phase = "L"
         F39.T, F39.p = params.D101_ABS_T_K, params.D101_ABS_P_PA
 
-        # ---------------------------------------------------------------------
         # (I) RUN ABSORBER -> CONCENTRATOR (E104) TO GET F38, THEN UPDATE V104 PURGE
-        # ---------------------------------------------------------------------
         run_until("E104_HNO3_Concentrator")
 
         f_purge = compute_required_purge_fraction_with_stock_acid(
@@ -1027,9 +995,7 @@ def build_flowsheet(*,
         last_f38_purge = float(f_purge)
         last_f2r = float(fs.streams["F2_R"].total_molar_flow())
 
-        # ---------------------------------------------------------------------
         # (J) NOW RUN NOx REDUCTION / KO / NH3 ABS / KO WATER PURGE (updates F45_R)
-        # ---------------------------------------------------------------------
         run_until("D101_NO2_Absorber")
         size_F43_for_R103()
         run_unit(R103)
@@ -1038,22 +1004,16 @@ def build_flowsheet(*,
         run_unit(D102)
         run_unit(V105)  # update F45_R for next iteration’s M105->M102
 
-        # ---------------------------------------------------------------------
         # (K) CONTINUE THROUGH SOLVENT LOOP TO UPDATE F15 (tear)
-        # ---------------------------------------------------------------------
         run_until("V133_SolventPurge")
 
-        # ---------------------------------------------------------------------
         # (L) TSA sizing + execution (downstream polish)
-        # ---------------------------------------------------------------------
         run_unit(V201)
         size_TSA_beds_and_regen_air()
         run_unit(TSA101A)
         run_unit(TSA101B)
 
-        # ---------------------------------------------------------------------
-        # (M) Convergence on ALL streams (as you originally did)
-        # ---------------------------------------------------------------------
+        # (M) Convergence on ALL streams
         curr_snap = snapshot_streams(fs)
         err = max_rel_change_all_streams(prev_snap, curr_snap, include_Tp=include_Tp)
         if err < tol:
