@@ -307,6 +307,10 @@ def build_flowsheet(*,
     F48 = fs.new_process_stream("F48", phase="L", mol={})       # absorber liquid (NH3 in water)
     F49 = fs.new_process_stream("F49", phase="G", mol={})       # treated gas
 
+    # Gas surge after dissolver offgas
+    F63 = fs.new_process_stream("F63", phase="G", mol={})  # buffered dissolver offgas (F3 -> F63)
+
+
     # -------------------------------------------------------------------------
     # TSA system streams (two columns A/B)
     # -------------------------------------------------------------------------
@@ -365,6 +369,12 @@ def build_flowsheet(*,
     R101.add_outlet("aq", F5)
     R101.add_outlet("solids", F4)
     _add_unit(R101)
+
+    V103 = BufferVessel("V103_OffgasSurge")
+    V103.add_inlet("in", condition_to_unit(F3, "V103_OffgasSurge"))
+    V103.add_outlet("out", F63)
+    _add_unit(V103)
+
 
     V101 = BufferVessel("V101_Liquid_Buffer")
     V101.add_inlet("in", condition_to_unit(F5, "V101_Liquid_Buffer"))
@@ -597,7 +607,7 @@ def build_flowsheet(*,
 
     M302 = Mixer("M302_OffgasMixer")
     M302.add_inlet("cond_gas", condition_to_unit(F32, "M302_OffgasMixer"))
-    M302.add_inlet("dissolver_offgas", condition_to_unit(F3, "M302_OffgasMixer"))
+    M302.add_inlet("dissolver_offgas", condition_to_unit(F63, "M302_OffgasMixer"))
     M302.add_inlet("air", condition_to_unit(F40, "M302_OffgasMixer"))
     M302.add_outlet("out", F41)
     _add_unit(M302)
