@@ -162,8 +162,17 @@ def build_flowsheet(*,
             if same_T and same_p:
                 return src
 
-        need_T = (target_T is not None) and _needs_T(src, float(target_T))
-        need_p = (target_p is not None) and _needs_p(src, float(target_p))
+        ref_T = src.T
+        ref_p = src.p
+        if prod and prod in unit_cond:
+            prod_cond = unit_cond.get(prod, {})
+            if prod_cond.get("T", None) is not None:
+                ref_T = float(prod_cond["T"])
+            if prod_cond.get("p", None) is not None:
+                ref_p = float(prod_cond["p"])
+
+        need_T = (target_T is not None) and (abs(float(ref_T) - float(target_T)) > 1e-9)
+        need_p = (target_p is not None) and (abs(float(ref_p) - float(target_p)) > 1e-6)
         if not need_T and not need_p:
             return src
 

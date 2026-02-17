@@ -821,11 +821,15 @@ def get_or_create_conditioned_stream(
 
     # ---- PC (p) ----
     if target_p is not None:
-        keyP = _cond_key_simple(base, "p", float(target_p), out.phase)
+        # If we already temperature-conditioned, out.name will be like "F23-T".
+        # We want the pressure-conditioned stream to be "F23-T-p" (not "F23-p").
+        p_base = out.name  # <-- key behavior change
+
+        keyP = _cond_key_simple(p_base, "p", float(target_p), out.phase)
         if keyP in cache:
             out = cache[keyP]
         else:
-            preferred = f"{base}-p"
+            preferred = f"{p_base}-p"  # e.g. "F23-T-p" or "F23-p" if no HX happened
             sp_name = _make_unique_stream_name(fs, preferred, target=float(target_p), kind="p")
 
             if sp_name in fs.streams:
@@ -833,7 +837,7 @@ def get_or_create_conditioned_stream(
             else:
                 sp = fs.new_process_stream(sp_name, phase=out.phase, mol={})
 
-            _copy_flow(out, sp)          # <-- critical: avoid zero-flow before PC runs
+            _copy_flow(out, sp)  # avoid zero-flow before PC runs
             sp.p = float(target_p)
             sp.T = float(out.T)
 

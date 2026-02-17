@@ -168,7 +168,7 @@ class InputParameters:
     # EVAPORATORS E101 / E102 (vacuum: 50C, 70 torr)
     # -------------------------------------------------------------------------
 
-    EVAP_T_K = 323.15  # 50C
+    EVAP_T_K = 318.15  # 45C
     EVAP_USE_EQUILIBRIUM = True  # <-- NEW: flash-like split using K=Psat/P
     # EVAP_P_TORR already defined above (70.0)
 
