@@ -342,8 +342,7 @@ class InputParameters:
     TSA_REGEN_T_K = 423.15  # 150 C
     TSA_REGEN_P_PA = 1.0e5
 
-    # "Minimise regen flow" via a max iodine mole fraction in regen outlet gas.
-    # Choose a conservative bound to avoid unrealistic supersaturation/condensation.
+
     TSA_REGEN_MAX_Y_I2 = 0.1  # 10 mol% iodine max in regen exhaust
 
     # Which physical column is ADSORBING right now ("A" or "B")
@@ -370,8 +369,8 @@ class InputParameters:
         "F2_W": {"T": 298.15, "p": 1e5, "phase": "L"}, # Makeup water feed
         "F43": {"T": 298.15, "p": 1e5, "phase": "G"},  # pure NH3 feed
         "F47": {"T": 298.15, "p": 1e5, "phase": "L"},  # water wash into D102
-        "F52A": {"T": 298.15, "p": 1e5, "phase": "L"},  # Regeneration feed in TSA system
-        "F52B": {"T": 298.15, "p": 1e5, "phase": "L"},  # Regeneration feed in TSA system
+        "F52A": {"T": 298.15, "p": 1e5, "phase": "G"},  # Regeneration feed in TSA system
+        "F52B": {"T": 298.15, "p": 1e5, "phase": "G"},  # Regeneration feed in TSA system
     }
 
     # -------------------------------------------------------------------------

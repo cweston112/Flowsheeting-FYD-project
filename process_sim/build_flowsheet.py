@@ -735,7 +735,7 @@ def build_flowsheet(*,
         t_ads_s=t_ads_s,
         t_regen_s=t_reg_s,
         regen_yI2_max=float(params.TSA_REGEN_MAX_Y_I2),
-        print_diagnostics=False,
+        print_diagnostics=True,
     )
     TSA101B = IdealTSAColumnEMM17(
         "TSA101B_ColB",
@@ -746,8 +746,12 @@ def build_flowsheet(*,
         t_ads_s=t_ads_s,
         t_regen_s=t_reg_s,
         regen_yI2_max=float(params.TSA_REGEN_MAX_Y_I2),
-        print_diagnostics=False,
+        print_diagnostics=True,
     )
+
+    col_ads = TSA101A if TSA101A.mode == "adsorb" else TSA101B
+    col_reg = TSA101A if TSA101A.mode == "regen" else TSA101B
+    col_reg.set_regen_source(col_ads)
 
     TSA101A.add_inlet("gas_in", condition_to_unit(F49A, "TSA101A_ColA"))
     TSA101A.add_outlet("gas_out", F50A)
@@ -898,10 +902,10 @@ def build_flowsheet(*,
             stream.T, stream.p = float(params.TSA_REGEN_T_K), float(params.TSA_REGEN_P_PA)
 
         if col_reg is TSA101A:
-            set_air(F52A, n_air_min, I_desorb)
+            set_air(F52A, n_air_min, 0.0)
             set_air(F52B, 0.0, 0.0)
         else:
-            set_air(F52B, n_air_min, I_desorb)
+            set_air(F52B, n_air_min, 0.0)
             set_air(F52A, 0.0, 0.0)
 
     for it in range(1, max_iter + 1):
@@ -1028,9 +1032,9 @@ def build_flowsheet(*,
 
         # (L) TSA sizing + execution (downstream polish)
         run_unit(V201)
-        size_TSA_beds_and_regen_air()
-        run_unit(TSA101A)
-        run_unit(TSA101B)
+        run_unit(col_ads)  # computes captured_cycle_mol
+        size_TSA_beds_and_regen_air()  # sets air flow (F52*) based on desired y_max
+        run_unit(col_reg)  # adds iodine to F51*
 
         # (M) Convergence on ALL streams
         curr_snap = snapshot_streams(fs)
