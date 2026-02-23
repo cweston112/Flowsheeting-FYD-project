@@ -408,6 +408,8 @@ def build_flowsheet(*,
         N_max=params.X1_N_MAX,
         OA_max=params.X1_OA_MAX,
         N_balance_cap=getattr(params, "X1_N_BALANCE_CAP", 20),
+        tbp_stoich={"U": 2.0, "Pu": 2.0, "Np": 2.0, "Tc": 4.0},
+        tbp_free_min=4.0,
     )
     X101.add_inlet("aq_in", condition_to_unit(F6, "X101_TBP_Extraction"))
     X101.add_inlet("org_in", condition_to_unit(F7, "X101_TBP_Extraction"))
@@ -919,18 +921,38 @@ def build_flowsheet(*,
             stock_water_per_hno3_mol=params.ACID_STOCK_WATER_PER_HNO3_MOL,
         )
 
-        # (B) RUN FRONT-END TO GET AQUEOUS FLOW FOR X101
-        run_until("V101_Liquid_Buffer")
+        # ------------------------------------------------------------------
+        # (B) RUN FRONT-END FAR ENOUGH THAT *BOTH* X101 INLETS ARE CURRENT
+        #     This means: get F6 (aq) and also run M114 to get F7 (org)
+        # ------------------------------------------------------------------
+        run_until("M114_OrgFeedMixer")  # <-- changed from V101_Liquid_Buffer
 
-        # (C) SIZE X101 ORGANIC MAKEUP FOR CURRENT AQUEOUS FEED
+
+        # Optional sanity check: OA from actual current streams BEFORE sizing
+        # (use fs.streams to avoid any confusion about conditioned stream wrappers)
+        A_tot_now = fs.streams["F6"].total_molar_flow()
+        O_tot_now = fs.streams["F7"].total_molar_flow()
+        OA_now = O_tot_now / max(A_tot_now, EPS)
+
+
+        # ------------------------------------------------------------------
+        # (C) DESIGN X101 (uses current aq_in+org_in states)
+        # ------------------------------------------------------------------
         _, OA_design = X101.design_N_and_OA()
+
+        # Enforce any user-defined minimum
         OA1 = max(float(OA_design), float(getattr(params, "X1_OA_MIN", 0.0)))
+
+        # Use the aqueous flow that X101 actually sees
         A_tot = X101.inlets["aq_in"].total_molar_flow()
         n_org_req_total = OA1 * A_tot
 
         last_OA1 = float(OA1)
         last_norg_req = float(n_org_req_total)
 
+        # ------------------------------------------------------------------
+        # (C2) SIZE SOLVENT MAKEUP TO HIT REQUIRED TOTAL ORGANIC FLOW
+        # ------------------------------------------------------------------
         size_solvent_makeup_for_required_org_flow(
             reg=fs.reg,
             recycle=F15,
@@ -941,10 +963,24 @@ def build_flowsheet(*,
             dil_name="Dodecane",
         )
 
+        # ------------------------------------------------------------------
+        # (C3) CRITICAL: re-run M114 so that F7 (org_in to X101) reflects new F16
+        # ------------------------------------------------------------------
+        run_unit(M114)
+
+        # Optional sanity check: OA immediately after applying new makeup
+        A_tot_after = fs.streams["F6"].total_molar_flow()
+        O_tot_after = fs.streams["F7"].total_molar_flow()
+        OA_after = O_tot_after / max(A_tot_after, EPS)
+
+        # ------------------------------------------------------------------
         # (D) RUN THROUGH E101 SO F8/F17 ARE CURRENT
+        # ------------------------------------------------------------------
         run_until("E101_Evaporator")
 
+        # ------------------------------------------------------------------
         # (E) SIZE X102 STRIP FEED (F9) BASED ON CURRENT ORG_IN (F8)
+        # ------------------------------------------------------------------
         _, AO2_design = X102.design_N_and_AO()
         AO2 = max(float(AO2_design), float(getattr(params, "X2_AO_MIN", 0.0)))
 
@@ -963,10 +999,14 @@ def build_flowsheet(*,
             water_molarity_pure=params.X2_STRIP_WATER_MOLARITY,
         )
 
+        # ------------------------------------------------------------------
         # (F) RUN THROUGH M201 SO X102/E102/M201 ARE CURRENT
+        # ------------------------------------------------------------------
         run_until("M201_EvapOverheadMixer")
 
+        # ------------------------------------------------------------------
         # (G) ENSURE CONDITIONING BETWEEN M201 AND X103 EXECUTED, THEN SIZE F11 FOR AO3
+        # ------------------------------------------------------------------
         run_range("M201_EvapOverheadMixer", "X103_Final_Strip")
 
         _, AO3_design = X103.design_N_and_AO()
@@ -987,10 +1027,14 @@ def build_flowsheet(*,
             water_molarity_pure=params.X3_STRIP_WATER_MOLARITY,
         )
 
+        # ------------------------------------------------------------------
         # (H) RUN THROUGH OFFGAS MIXING SO F41 IS CURRENT
+        # ------------------------------------------------------------------
         run_until("M302_OffgasMixer")
 
+        # ------------------------------------------------------------------
         # (H1) SIZE ABSORBER WATER FEED F39 BASED ON CURRENT F41 TOTAL FLOW (molar L/G)
+        # ------------------------------------------------------------------
         n_gas = fs.streams["F41"].total_molar_flow()
         n_water = float(params.D101_LG_WATER_PER_GAS) * float(n_gas)
         last_LG_water = float(n_water)
@@ -1001,7 +1045,9 @@ def build_flowsheet(*,
         F39.phase = "L"
         F39.T, F39.p = params.D101_ABS_T_K, params.D101_ABS_P_PA
 
+        # ------------------------------------------------------------------
         # (I) RUN ABSORBER -> CONCENTRATOR (E104) TO GET F38, THEN UPDATE V104 PURGE
+        # ------------------------------------------------------------------
         run_until("E104_HNO3_Concentrator")
 
         f_purge = compute_required_purge_fraction_with_stock_acid(
@@ -1018,7 +1064,9 @@ def build_flowsheet(*,
         last_f38_purge = float(f_purge)
         last_f2r = float(fs.streams["F2_R"].total_molar_flow())
 
+        # ------------------------------------------------------------------
         # (J) NOW RUN NOx REDUCTION / KO / NH3 ABS / KO WATER PURGE (updates F45_R)
+        # ------------------------------------------------------------------
         run_until("D101_NO2_Absorber")
         size_F43_for_R103()
         run_unit(R103)
@@ -1027,16 +1075,22 @@ def build_flowsheet(*,
         run_unit(D102)
         run_unit(V105)  # update F45_R for next iteration’s M105->M102
 
+        # ------------------------------------------------------------------
         # (K) CONTINUE THROUGH SOLVENT LOOP TO UPDATE F15 (tear)
+        # ------------------------------------------------------------------
         run_until("V133_SolventPurge")
 
+        # ------------------------------------------------------------------
         # (L) TSA sizing + execution (downstream polish)
+        # ------------------------------------------------------------------
         run_unit(V201)
         run_unit(col_ads)  # computes captured_cycle_mol
         size_TSA_beds_and_regen_air()  # sets air flow (F52*) based on desired y_max
         run_unit(col_reg)  # adds iodine to F51*
 
+        # ------------------------------------------------------------------
         # (M) Convergence on ALL streams
+        # ------------------------------------------------------------------
         curr_snap = snapshot_streams(fs)
         err = max_rel_change_all_streams(prev_snap, curr_snap, include_Tp=include_Tp)
         if err < tol:

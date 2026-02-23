@@ -92,7 +92,7 @@ class InputParameters:
     }
 
     X1_N_MAX = 50
-    X1_OA_MAX = 1000.0
+    X1_OA_MAX = 100
     X1_N_BALANCE_CAP = 20
     X1_OA_MIN = 0.5  # So the optimiser does not use incredibly low flow rates
 
