@@ -157,7 +157,7 @@ class InputParameters:
 
     X3_N_MAX = 50
     X3_AO_MAX = 1e4
-    X3_AO_MIN = 0.5  # So the optimiser does not use incredibly low flow rates
+    X3_AO_MIN = 2.5 # So the optimiser does not use incredibly low flow rates
 
     # -------------------------------------------------------------------------
     # Solvent purge fraction after X3 organic outlet
