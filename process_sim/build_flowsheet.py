@@ -212,7 +212,7 @@ def build_flowsheet(*, max_iter=None, tol=None, relax=None, verbose=None) -> Flo
         ("F59", "L"), ("F44", "G"), ("F45", "L"), ("F46", "G"), ("F47T", "L"),
         ("F48", "L"), ("F49", "G"), ("F60", "L"), ("F49A", "G"), ("F49B", "G"),
         ("F50A", "G"), ("F50B", "G"), ("F51A", "G"), ("F51B", "G"), ("F61", "L"),
-        ("F62", "L"), ("F13T", "L"), ("F14", "L"), ("F_StackGas", "G"),
+        ("F62", "L"), ("F13T", "L"), ("F14", "L"), ("F_StackGas", "G"), ("F3P", "G"), ("F3PT", "G")
     ]:
         S(name, phase)
 
@@ -227,7 +227,21 @@ def build_flowsheet(*, max_iter=None, tol=None, relax=None, verbose=None) -> Flo
     ds.connect_outlet("offgas", fs.streams["F3"]); ds.connect_outlet("aq", fs.streams["F5"]); ds.connect_outlet("solids", fs.streams["F4"])
     v102 = PassThrough("V102_DissolverHold"); v102.connect_inlet("in", fs.streams["F5"]); v102.connect_outlet("out", fs.streams["F6"])
     p108 = PassThrough("P108_ToX101"); p108.connect_inlet("in", fs.streams["F6"]); p108.connect_outlet("out", fs.streams["F6P"])
-    v103 = PassThrough("V103_OffgasSurge"); v103.connect_inlet("in", fs.streams["F3"]); v103.connect_outlet("out", fs.streams["F63"])
+    uc_v103 = cfg.UNIT_CONDITIONS.get("V103_OffgasSurge", {})
+    T_v103 = uc_v103.get("T")
+    p_v103 = uc_v103.get("p")
+
+    V103P = Conditioner("V103P_OffgasPressure", target_p=p_v103)
+    V103P.connect_inlet("in", fs.streams["F3"])
+    V103P.connect_outlet("out", fs.streams["F3P"])
+
+    V103T = Conditioner("V103T_OffgasTemperature", target_T=T_v103)
+    V103T.connect_inlet("in", fs.streams["F3P"])
+    V103T.connect_outlet("out", fs.streams["F3PT"])
+
+    v103 = PassThrough("V103_OffgasSurge")
+    v103.connect_inlet("in", fs.streams["F3PT"])
+    v103.connect_outlet("out", fs.streams["F63"])
     p104 = PassThrough("P104_OffgasBlower"); p104.connect_inlet("in", fs.streams["F63"]); p104.connect_outlet("out", fs.streams["F63P"])
 
     # solvent extraction
@@ -311,7 +325,7 @@ def build_flowsheet(*, max_iter=None, tol=None, relax=None, verbose=None) -> Flo
     hx133 = Conditioner("HX133_SolventCooler", target_T=298.15); hx133.connect_inlet("in", fs.streams["F62"]); hx133.connect_outlet("out", fs.streams["F13T"])
     v133 = PurgeSplitter("V133_SolventPurge", purge_frac=cfg.V133["purge_frac"]); v133.connect_inlet("in", fs.streams["F13T"]); v133.connect_outlet("purge", fs.streams["F14"]); v133.connect_outlet("recycle", fs.streams["F15"])
 
-    units = [m105, m102, v101, p107, e101acid, ds, v102, p108, v103, p104, m114, mx101, x101, cf101, e102raff,
+    units = [m105, m102, v101, p107, e101acid, ds, v102, p108, V103P, V103T, v103, p104, m114, mx101, x101, cf101, e102raff,
              mx102, x102, cf102, ev101, m201, b101, mx103, x103, cf103, e107, e107_u, ev103a, ev103a_clean, ev103a_aux, ev103b, ev103b_aux, ev103c, m272, p105, e109, r101, p106, e111, e110, k101, m301, k301,
              m302, e113, d101, m303, e118, e104, v104, r103, ko101, v105, e116, d102, v201, tsaA, tsaB, mstack, m132,
              m133, hx133, v133]
@@ -349,6 +363,8 @@ def build_flowsheet(*, max_iter=None, tol=None, relax=None, verbose=None) -> Flo
 
         # F) SCR / KO / NH3 absorber / KO recycle
         _size_f43(fs)
+        _run(V103P)
+        _run(V103T)
         _run(r103); _run(ko101)
         _run(v105)
         _size_f47(fs)

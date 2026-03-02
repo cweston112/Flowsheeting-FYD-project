@@ -236,29 +236,6 @@ X103 = {
 
 CF103 = {"frac_removed": {"TBP": 0.9952853475981924}, "default_frac_removed": 0.0}
 
-# Explicit EV-103A/B/C break-out.
-#
-# Intended simplified concentration logic
-# --------------------------------------
-# EV-103A
-#   - main flash/concentration step
-#   - removes most volatile H2O/HNO3 to F65 (sent to the hot-vapour header)
-#   - keeps essentially all U in the liquid train
-#   - bleeds a small heel of entrained organic / trace impurities to F69
-# EV-103B
-#   - hydraulic / internal stage split of the concentrated liquor into two feeds
-#     to EV-103C (F66 and F68), with a small heel/waste bleed F72
-#   - the upper feed F66 is intentionally lighter (more H2O/HNO3, less U)
-#     than the lower feed F68
-# EV-103C
-#   - final concentration / product draw stage
-#   - sends essentially all uranium nitrate to product F24
-#   - sends a small mother-liquor / impurity bleed to F70
-#
-# The combined effect is kept close to the old_complex single-E103 behaviour:
-# most H2O/HNO3 is removed from the U-product stream, but the staged PFD
-# topology is now represented explicitly and the per-species stage routing is
-# easy to edit here.
 
 EV103A = {
     # Finalised performance data from the updated reactor / evaporator stream table.
@@ -371,7 +348,7 @@ UNIT_CONDITIONS = {
     "DS101_104_DissolverTrain": {"T": 373.15, "p": 1e5},
     "V102_DissolverHold": {"T": 298.15, "p": 1e5},
     "P108_ToX101": {"T": 298.15, "p": 1e5},
-    "V103_OffgasSurge": {"T": 298.15, "p": 1e5},
+    "V103_OffgasSurge": {"T": 298.15, "p": 1e6},
     "P104_OffgasBlower": {"T": 298.15, "p": 1e5},
     # solvent extraction section
     "M114_SolventMakeupMixer": {"T": 298.15, "p": 1e5},
