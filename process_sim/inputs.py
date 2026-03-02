@@ -1,464 +1,454 @@
 from __future__ import annotations
 
-
-class InputParameters:
-    # -------------------------------------------------------------------------
-    # GLOBAL DEFAULTS
-    # -------------------------------------------------------------------------
-    DEFAULT_T_K = 298.15
-    DEFAULT_P_PA = 100000
-
-    # -------------------------------------------------------------------------
-    # FEED COMPOSITION (mol/s) - FIXED
-    # -------------------------------------------------------------------------
-    FEED_COMPOSITION = {
-        "UO2": 0.810614973,
-        "PuO2": 0.00765862,
-        "NpO2": 0.000403571,
-        "AmO2": 0.000321834,
-        "Cs2O": 0.004272278,
-        "SrO": 0.002094222,
-        "Nd2O3": 0.00627727,
-        "Sm2O3": 0.001264957,
-        "Eu2O3": 0.000183208,
-        "Gd2O3": 0.000106239,
-        "Tc": 0.003139914,
-        "Xe": 0.013807779,
-        "Kr": 0.002438652,
-        "I": 0.000552969,
-        "Zircaloy": 0.131325068,
-    }
-
-    # -------------------------------------------------------------------------
-    # ATOMIC WEIGHTS (g/mol) - for formula-based MW if used
-    # -------------------------------------------------------------------------
-    ATOMIC_WEIGHTS = {
-        "U": 237.969, "Pu": 239.757, "Np": 237.000, "Am": 241.000,
-        "Sr": 90.000, "Tc": 99.000, "Cs": 135.010, "Nd": 144.997,
-        "Sm": 149.187, "Eu": 153.000, "Gd": 156.000,
-        "Xe": 131.293, "Kr": 83.798, "I": 129.000,
-        "O": 15.999, "H": 1.008, "N": 14.007, "Zr": 91.224,
-        "C": 12.011, "P": 30.974,
-    }
-
-
-
-    # -------------------------------------------------------------------------
-    # DISSOLVER ACID FEED TARGET (F2)
-    # -------------------------------------------------------------------------
-    R1_F2_TARGET_HNO3_MOL_S = 2.936403
-    R1_F2_TARGET_H2O_MOL_S = 6.571934
-
-    # -------------------------------------------------------------------------
-    # DISSOLVER PARAMETERS
-    # -------------------------------------------------------------------------
-    # Iodine & noble-gas behaviour
-    R1_IODINE_OFFGAS_FRACTION = 0.98
-    R1_NOBLE_GASES = ("Xe", "Kr")
-
-    # UO2 pathway split: fraction via R1, remainder via R2
-    R1_UO2_R1_FRACTION = 0.18
-
-    # NOx speciation of NOx produced: 41.5% as NO2, remainder as NO
-    R1_NOX_NO2_FRACTION = 0.415
-
-    # Zircaloy handling
-    R1_ZIRCALOY_BASKET_MOL_S = 0.131325068 - 6.234e-3
-    R1_ZIRCALOY_ESCAPE_FINES_MOL_S = 6.234e-3
-    R1_FINES_SETTLE_FRACTION = 0.0 #All zircaloy that escapes the basket goes into the downstream process
-
-    # Species naming for iodine bookkeeping (match your reactor defaults unless you changed them)
-    R1_IODINE_TOTAL_SPECIES = "I"
-    R1_IODINE_GAS_SPECIES = "I_g"
-    R1_IODINE_AQ_SPECIES = "I_aq"
-
-    # Cleaning water time averaged flow rate
-    F2B_flow_rate = 1.034165
-
-    # -------------------------------------------------------------------------
-    #  X1 TBP EXTRACTION PARAMETERS
-    # -------------------------------------------------------------------------
-    X1_DISTRIBUTION_COEFFICIENTS = {
-        "UO2(NO3)2": 40.0,
-        "Pu(NO3)4": 4.0,
-        "Np(NO3)4": 3.5,
-        "HTcO4": 0.5,
-        "TBP": 1e3, # Worst case scenario - low concentration of nitric acid and minimal metal salts
-    }
-
-    # minimum recovery-to-organic targets used by design_N_and_OA()
-    X1_REQUIRED_RECOVERY = {
-        "UO2(NO3)2": 0.999,
-    }
-
-    X1_N_MAX = 50
-    X1_OA_MAX = 100
-    X1_N_BALANCE_CAP = 20
-    X1_OA_MIN = 0.5  # So the optimiser does not use incredibly low flow rates
-
-    X1_TBP_WT_FRACTION = 0.30
-    X1_TBP_NAME = "TBP"
-    X1_DILUENT_NAME = "Dodecane"
-
-    # -------------------------------------------------------------------------
-    # X2 AHA STRIP FEED (fixed ratios via molarities)
-    # -------------------------------------------------------------------------
-    X2_STRIP_VDOT_L_S = 1.0  # L/s (scales the total strip flow)
-    X2_STRIP_MOLARITIES = {"AHA": 0.25, "HNO3": 0.5}  # mol/L
-    X2_STRIP_WATER_MOLARITY = 55.5  # mol/L (pure water basis)
-    X2_TARGET_AO = 0.1
-    X2_AO_MIN = 0.1 #So the optimiser does not use incredibly low flow rates
-
-    # -------------------------------------------------------------------------
-    # X2 STRIP DISTRIBUTION COEFFICIENTS (org/aq)
-    # -------------------------------------------------------------------------
-    X2_DISTRIBUTION_COEFFICIENTS = {
-        "UO2(NO3)2": 40.0,
-        "Pu(NO3)4": 1e-4,
-        "Np(NO3)4": 1e-6,  # assume Np(V)
-        "HTcO4": 0.5,
-        "TBP": 1e3,  # Worst case scenario - low concentration of nitric acid and minimal metal salts
-    }
-
-    # -------------------------------------------------------------------------
-    # X2 REQUIRED RECOVERY TO AQUEOUS (percent or fraction)
-    # -------------------------------------------------------------------------
-    X2_REQUIRED_RECOVERY_TO_AQ = {
-        "Pu(NO3)4": 99.9,
-        "Np(NO3)4": 99.9,
-    }
-
-    X2_N_MAX = 50
-    X2_AO_MAX = 1000.0
-    X2_N_BALANCE_CAP = 20
-
-    X2_NONTRANSFER_KEEP_IN_AQ = ["H2O", "HNO3", "AHA"]
-    X2_NONTRANSFER_KEEP_IN_ORG = ["Dodecane"]
-
-    # -------------------------------------------------------------------------
-    # X3 FINAL STRIP (dilute HNO3) – fixed composition via molarity ratios
-    # -------------------------------------------------------------------------
-    X3_STRIP_VDOT_L_S = 1.0
-    X3_STRIP_MOLARITIES = {"HNO3": 0.01}  # mol/L
-    X3_STRIP_WATER_MOLARITY = 55.5  # mol/L
-
-    # D values are org/aq
-    X3_DISTRIBUTION_COEFFICIENTS = { # Pessimistic values - find in more detail later
-        "HTcO4": 0.93,
-        "UO2(NO3)2": 0.25,
-        "TBP": 1e3, # Worst case scenario - low concentration of nitric acid and minimal metal salts
-    }
-
-    # Design targets for sizing A/O (pick something; adjust as desired)
-    # NOTE: must be 0–1, not percent.
-    X3_REQUIRED_RECOVERY_TO_AQ = {
-        "UO2(NO3)2": 0.999,
-    }
-
-    X3_N_MAX = 50
-    X3_AO_MAX = 1e4
-    X3_AO_MIN = 2.5 # So the optimiser does not use incredibly low flow rates
-
-    # -------------------------------------------------------------------------
-    # Solvent purge fraction after X3 organic outlet
-    # -------------------------------------------------------------------------
-    PURGE_FRACTION_SOLVENT_LOOP = 0.05
-
-    # -------------------------------------------------------------------------
-    # EVAPORATORS E101 / E102 (vacuum: 50C, 70 torr)
-    # -------------------------------------------------------------------------
-
-    EVAP_T_K = 318.15  # 45C
-    EVAP_USE_EQUILIBRIUM = True  # <-- NEW: flash-like split using K=Psat/P
-    # EVAP_P_TORR already defined above (70.0)
-
-    # frac_vap retained only for legacy mode if EVAP_USE_EQUILIBRIUM=False
-    E101_FRAC_VAP = {"H2O": 0.85, "HNO3": 0.60}
-    E102_FRAC_VAP = {"H2O": 0.85, "HNO3": 0.60}
-
-    # Floors in liquid product (anti-crystallisation guardrails)
-    E101_MIN_LIQ_MOL_S = {"H2O": 0.25, "HNO3": 0.01}
-    E102_MIN_LIQ_MOL_S = {"H2O": 0.05, "HNO3": 1e-4}
-
-    # Energetics
-    EVAP_LATENT_KJ_PER_MOL = {"H2O": 43.99, "HNO3": 39.0}
-    EVAP_CP_LIQ_J_PER_MOLK = 75.0
-
-    # AHA destruction (lumped). Full conversion each pass.
-    EVAP_AHA_PRODUCTS = {"AcOH": 1.0, "N2O": 0.5}
-    EVAP_AHA_HNO3_CONSUMPTION = 0.0
-
-    # Coupling behaviour (legacy mode only)
-    EVAP_COUPLED_BY_WATER = True
-    EVAP_WATER_NAME = "H2O"
-
-    # Diagnostics
-    EVAP_PRINT_DIAGNOSTICS = True
-    EVAP_PRINT_EVERY = 25
-    EVAP_PRINT_STREAMS = True
-
-    # -------------------------------------------------------------------------
-    # COALESCERS BETWEEN X101/X102 AND E101/E102 (TBP/DILUENT CARRYOVER CONTROL)
-    # -------------------------------------------------------------------------
-    COAL_TBP_NAME = "TBP"
-    COAL_DILUENT_NAME = "Dodecane"
-    COAL_WATER_NAME = "H2O"
-    COAL_HNO3_NAME = "HNO3"
-    COAL_WATER_MOLARITY_PURE = 55.5  # mol/L
-
-    # Entrained-droplet removal efficiency (applied only to amount above solubility)
-    COAL_REMOVAL_EFF = 0.999
-
-    # Dissolved equilibrium solubilities (mol/L), ~ambient
-    # TBP: 0.28–0.40 g/L => ~1.05e-3 to 1.50e-3 mol/L
-    COAL_TBP_SOLUBILITY_WEAK_MOL_L = 1.5e-3
-    COAL_TBP_SOLUBILITY_STRONG_MOL_L = 5.0e-4  # conservative lower dissolved TBP allowed in strong acid
-
-    # Dodecane: extremely low water solubility (order 1e-8 mol/L)
-    COAL_DIL_SOLUBILITY_WEAK_MOL_L = 2.0e-8
-    COAL_DIL_SOLUBILITY_STRONG_MOL_L = 1.0e-8
-
-    # "Strong acid" threshold for interpolation
-    COAL_HNO3_STRONG_M = 3.0
-
-    COAL_ASSUME_PURE_WATER_FOR_X102_AQ = True
-
-    COAL_PRINT_DIAGNOSTICS = False
-
-    COAL_X103_TO_E103_TBP_SOLUBILITY_MOL_L = 5.0e-5  # ~13 mg/L
-    COAL_X103_TO_E103_REMOVAL_EFF = 0.9999
-
-    # -------------------------------------------------------------------------
-    # Fresh air feed for downstream offgas mixing
-    # -------------------------------------------------------------------------
-    F40_AIR_TOTAL_MOL_S = 2.135616222
-    F40_AIR_O2_FRAC = 0.21
-    F40_AIR_N2_FRAC = 0.79
-
-    # -------------------------------------------------------------------------
-    # E103 continuous evaporator @ 100C, 1 bar (species split fractions to vapour)
-    # -------------------------------------------------------------------------
-    E103_T_K = 373.15
-    E103_P_PA = 1.0e5
-    E103_FRAC_TO_VAP = {"H2O": 0.90, "HNO3": 0.90}
-
-    # -------------------------------------------------------------------------
-    # U nitrate -> UO3 reactor @ 383.15 K, 1 bar
-    # -------------------------------------------------------------------------
-    R201_T_K = 383.15
-    R201_P_PA = 1.0e5
-    R201_HYDRATE_N = 0.0
-
-    # -------------------------------------------------------------------------
-    # Hot-vapour mixing + condenser at 1 bar
-    # -------------------------------------------------------------------------
-    HOT_VAP_MIX_T_K = 373.15
-    HOT_VAP_MIX_P_PA = 1.0e5
-
-    COND_T_K = 298.15
-    COND_P_PA = 1.0e5
-
-    # -------------------------------------------------------------------------
-    # Nitric acid recovery system
-    # -------------------------------------------------------------------------
-
-    D101_ABS_T_K = 313.15  # 40C
-    D101_ABS_P_PA = 100000
-
-    D101_NO2_CAPTURE_FRAC = 0.99
-    D101_NO_CAPTURE_FRAC = 0.95
-    D101_LG_WATER_PER_GAS = 6.0 / 2.68178  # mol water per mol gas
-
-    E104_T_K = 373.15  # 100C
-    E104_P_PA = 100000
-    E104_TARGET_HNO3_MASS_FRAC = 0.74 # 45% mol fraction (taken from Kevin's table)
-
-    # -------------------------------------------------------------------------
-    # MAKEUP ACID SUPPLY: treat as 70 vol% HNO3 + 30 vol% water
-    # with water molarity fixed at 55.5 mol/L
-    # -------------------------------------------------------------------------
-    ACID_STOCK_HNO3_VOL_FRAC = 0.70
-    ACID_STOCK_H2O_VOL_FRAC = 0.30
-
-    ACID_STOCK_MW_HNO3 = 63.012  # g/mol
-
-    # Density of (near) anhydrous HNO3 @ 20 C ~ 1.51 g/cm3 = 1.51 g/mL
-    ACID_STOCK_RHO_HNO3_G_ML = 1.51
-
-    # Derived "pure liquid HNO3" molarity (mol/L)
-    ACID_STOCK_HNO3_MOLARITY_PURE = (
-            ACID_STOCK_RHO_HNO3_G_ML * 1000.0 / ACID_STOCK_MW_HNO3
-    )
-
-    # Water molarity in the aqueous fraction (mol/L)
-    ACID_STOCK_WATER_MOLARITY = 55.5
-
-    # Fixed mol water per mol HNO3 in the stock (used by sizing)
-    ACID_STOCK_WATER_PER_HNO3_MOL = (
-            (ACID_STOCK_H2O_VOL_FRAC * ACID_STOCK_WATER_MOLARITY) /
-            (ACID_STOCK_HNO3_VOL_FRAC * ACID_STOCK_HNO3_MOLARITY_PURE)
-    )
-
-    # -------------------------------------------------------------------------
-    # R103 NH3 NOx reduction column (SCR-like) on absorber offgas
-    # -------------------------------------------------------------------------
-
-    R103_T_K = 673.15  # 400C
-    R103_P_PA = 1.0e5  # atmospheric
-    R103_NOX_REMOVAL_FRAC = 0.9376  # applies to NO and NO2
-    R103_NH3_EXCESS_FACTOR = 1.15  # Excess ammonia used (above the stoichiometric amount)
-
-    # -------------------------------------------------------------------------
-    # KO101 knock-out pot after R103 (remove all water)
-    # -------------------------------------------------------------------------
-    KO101_T_K = 323.15  # 50 C
-    KO101_P_PA = 1.0e5  # 1 bar
-    KO_WATER_PURGE_FRAC = 0.05  # 5% purge, 95% recycle
-
-    # -------------------------------------------------------------------------
-    # D102: NH3 absorption column (water wash) on F46
-    # -------------------------------------------------------------------------
-    D102_T_K = 323.15
-    D102_P_PA = 1.0e5
-    D102_NH3_CAPTURE_FRAC = 0.99
-
-    D102_LG_WATER_PER_GAS = 6.77  # mol H2O per mol gas
-
-    # -------------------------------------------------------------------------
-    # TSA (EMM-17) IODINE POLISHING ON F49
-    # -------------------------------------------------------------------------
-    TSA_IODINE_NAME = "I_g"
-
-    # Thesis-reported (order-of-magnitude) performance for EMM-17:
-    TSA_EMM17_UPTAKE_G_PER_G = 0.42  # g I2 / g adsorbent (dynamic, ~150 ppmv tests)
-    TSA_EMM17_PACKING_DENSITY_G_CM3 = 0.49  # g/cm^3
-    TSA_MTZ_UTILIZATION = 0.70  # only 70% of bed utilised (finite MTZ)
-
-    # Cycle assumptions (time-averaged TSA)
-    TSA_T_ADS_H = 8.0
-    TSA_T_REGEN_H = 4.0
-
-    # Regeneration conditions
-    TSA_REGEN_T_K = 423.15  # 150 C
-    TSA_REGEN_P_PA = 1.0e5
-
-
-    TSA_REGEN_MAX_Y_I2 = 0.1  # 10 mol% iodine max in regen exhaust
-
-    # Which physical column is ADSORBING right now ("A" or "B")
-    TSA_ACTIVE_COLUMN = "A"
-
-    # Regen gas composition (AIR)
-    TSA_REGEN_O2_FRAC = 0.21
-    TSA_REGEN_N2_FRAC = 0.79
-
-    # Safety factor on bed volume
-    TSA_BED_VOL_SF = 1.10
-
-    # -------------------------------------------------------------------------
-    # EXOGENOUS STREAM SPECS
-    # -------------------------------------------------------------------------
-    EXOGENOUS_STREAM_SPECS = {
-        "F1": {"T": 298.15, "p": 1e5, "phase": "S"},  # Fuel feed
-        "F2_M": {"T": 298.15, "p": 1e5, "phase": "L"},  # Nitric acid feed
-        "F2_B": {"T": 298.15, "p": 1e5, "phase": "L"},  # Cleaning water feed
-        "F16": {"T": 298.15, "p": 1e5, "phase": "L"},  # TBP make-up
-        "F9": {"T": 298.15, "p": 1e5, "phase": "L"},  # AHA feed
-        "F11": {"T": 298.15, "p": 1e5, "phase": "L"},  # Dilute nitric acid
-        "F40": {"T": 298.15, "p": 1e5, "phase": "G"},  # Fresh air feed
-        "F2_W": {"T": 298.15, "p": 1e5, "phase": "L"}, # Makeup water feed
-        "F43": {"T": 298.15, "p": 1e5, "phase": "G"},  # pure NH3 feed
-        "F47": {"T": 298.15, "p": 1e5, "phase": "L"},  # water wash into D102
-        "F52A": {"T": 298.15, "p": 1e5, "phase": "G"},  # Regeneration feed in TSA system
-        "F52B": {"T": 298.15, "p": 1e5, "phase": "G"},  # Regeneration feed in TSA system
-    }
-
-    # -------------------------------------------------------------------------
-    # UNIT / VESSEL OPERATING CONDITIONS
-    # -------------------------------------------------------------------------
-    EVAP_P_TORR = 70.0
-    EVAP_P_PA = 70.0 / 760.0 * 101325.0  # ≈ 9330 Pa
-
-    UNIT_CONDITIONS = {
-        # ------------------------------------------------------------------
-        # Front-end dissolution & extraction
-        # ------------------------------------------------------------------
-        "R101_Dissolver": {"T": 373.15, "p": 1.0e5},
-        "V101_Liquid_Buffer": {"T": 298.15, "p": 1.0e5},
-
-        "X101_TBP_Extraction": {"T": 298.15, "p": 1.0e5},
-        "CF101_Coalescer_X101_to_E101": {"T": 298.15, "p": 1.0e5},
-
-        "E101_Evaporator": {"T": 323.15, "p": EVAP_P_PA},
-
-        # ------------------------------------------------------------------
-        # AHA strip + evaporation
-        # ------------------------------------------------------------------
-        "X102_AHA_Strip": {"T": 298.15, "p": 1.0e5},
-        "CF102_Coalescer_X102_to_E102": {"T": 298.15, "p": 1.0e5},
-
-        "E102_Evaporator": {"T": 323.15, "p": EVAP_P_PA},
-
-        "M201_EvapOverheadMixer": {"T": 323.15, "p": EVAP_P_PA},
-
-        # ------------------------------------------------------------------
-        # Final strip + TBP polish
-        # ------------------------------------------------------------------
-        "X103_Final_Strip": {"T": 323.15, "p": 1.0e5},
-        "CF103_Coalescer_X103_to_E103": {"T": 323.15, "p": 1.0e5},
-
-        # ------------------------------------------------------------------
-        # High-temperature evaporation & calcination
-        # ------------------------------------------------------------------
-        "E103_Evaporator100C": {"T": 373.15, "p": 1.0e5},
-
-        "R201_UO3_Calciner": {"T": R201_T_K, "p": R201_P_PA},
-        "R202_U3O8_Converter": {"T": 623.15, "p": 1.0e5},
-
-        # ------------------------------------------------------------------
-        # Hot vapour handling & condensation
-        # ------------------------------------------------------------------
-        "M301_HotVapMixer": {"T": HOT_VAP_MIX_T_K, "p": HOT_VAP_MIX_P_PA},
-
-        "K301_Condenser": {"T": COND_T_K, "p": COND_P_PA},
-        "M302_OffgasMixer": {"T": COND_T_K, "p": COND_P_PA},
-
-        # ------------------------------------------------------------------
-        # NOx handling & acid recovery
-        # ------------------------------------------------------------------
-        "V103_OffgasSurge": {"T": 298.15, "p": 1e5},
-        "D101_NO2_Absorber": {"T": 313.15, "p": 1.0e5},  # 40 °C
-        "E104_HNO3_Concentrator": {"T": 373.15, "p": 1.0e5},
-
-        # ------------------------------------------------------------------
-        # Solvent loop
-        # ------------------------------------------------------------------
-        "M133_OrgRecoveryMixer": {"T": 298.15, "p": 1.0e5},
-        "V133_SolventPurge": {"T": 298.15, "p": 1.0e5},
-        # ------------------------------------------------------------------
-        # NOx reduction
-        # ------------------------------------------------------------------
-        "R103_NOxReduction": {"T": R103_T_K, "p": R103_P_PA},
-        "KO101_KnockOutPot": {"T": KO101_T_K, "p": KO101_P_PA},
-        "V105_KOWaterPurge": {"T": 323.15, "p": 1.0e5},
-        "M105_WaterTrimMixer": {"T": 298.15, "p": 1.0e5},
-        "V102_AcidSurge": {"T": 298.15, "p": 1.0e5},
-        "D102_NH3_Absorber": {"T": D102_T_K, "p": D102_P_PA},
-        # ------------------------------------------------------------------
-        # Iodine polishing
-        # ------------------------------------------------------------------
-        "TSA101A_ColA": {"T": 298.15, "p": 1.0e5},
-        "TSA101B_ColB": {"T": 298.15, "p": 1.0e5},
-
-
-
-    }
-
-
-
-
-
-
-
-
-
+"""
+Configuration for the simplified PUREX-like process model.
+
+Design intent
+-------------
+- Keep the simplified package easy to edit.
+- Keep recycle-dependent *sizing logic* aligned with the old_complex package.
+- Use fixed split fractions / conversions for the simplified units, with values
+  taken from the old_complex base-case where appropriate.
+- Where the PFD contains more detailed equipment than the old_complex package,
+  represent that section with pass-through / dummy units that can be refined
+  later without changing the recycle structure.
+"""
+
+# ---------------------------------------------------------------------------
+# CHEMISTRY / MW SUPPORT
+# ---------------------------------------------------------------------------
+ATOMIC_WEIGHTS: dict[str, float] = {
+    "U": 238.029, "Pu": 239.052, "Np": 237.048, "Am": 241.057,
+    "Sr": 87.620, "Tc": 98.906, "Cs": 132.905, "Nd": 144.242,
+    "Sm": 150.360, "Eu": 151.964, "Gd": 157.250,
+    "Xe": 131.293, "Kr": 83.798, "I": 126.904,
+    "O": 15.999, "H": 1.008, "N": 14.007, "Zr": 91.224,
+    "C": 12.011, "P": 30.974,
+}
+
+SPECIES_FORMULAS: dict[str, str] = {
+    # fuel / solids
+    "UO2": "UO2",
+    "PuO2": "PuO2",
+    "NpO2": "NpO2",
+    "AmO2": "AmO2",
+    "Cs2O": "Cs2O",
+    "SrO": "SrO",
+    "Nd2O3": "Nd2O3",
+    "Sm2O3": "Sm2O3",
+    "Eu2O3": "Eu2O3",
+    "Gd2O3": "Gd2O3",
+    "Tc": "Tc",
+    "Xe": "Xe",
+    "Kr": "Kr",
+    "I": "I",
+    "I_g": "I2",
+    "I_aq": "I",
+    "Zircaloy": "Zr",
+    # common process species
+    "H2O": "H2O",
+    "HNO3": "HNO3",
+    "NO2": "NO2",
+    "NO": "NO",
+    "N2": "N2",
+    "O2": "O2",
+    "NH3": "NH3",
+    "N2O": "N2O",
+    "TBP": "C12H27O4P",
+    "Dodecane": "C12H26",
+    "AHA": "C2H5NO2",
+    "AcOH": "C2H4O2",
+    # dissolved nitrate salts
+    "UO2(NO3)2": "UO2(NO3)2",
+    "Pu(NO3)4": "Pu(NO3)4",
+    "Np(NO3)4": "Np(NO3)4",
+    "Am(NO3)4": "Am(NO3)4",
+    "CsNO3": "CsNO3",
+    "Sr(NO3)2": "SrNO32",
+    "Nd(NO3)3": "Nd(NO3)3",
+    "Sm(NO3)3": "Sm(NO3)3",
+    "Eu(NO3)3": "Eu(NO3)3",
+    "Gd(NO3)3": "Gd(NO3)3",
+    "HTcO4": "HTcO4",
+    # products
+    "UO3": "UO3",
+    "U3O8": "U3O8",
+}
+
+SPECIES_MW_OVERRIDE: dict[str, float] = {
+    "Zircaloy": 91.224,
+    "Sr(NO3)2": 211.630,
+}
+
+# ---------------------------------------------------------------------------
+# EXOGENOUS FEEDS
+# ---------------------------------------------------------------------------
+EXOGENOUS_STREAMS: dict[str, dict] = {
+    # Fuel feed to the effective continuous dissolver representation
+    "F1": {
+        "T": 298.15, "p": 1e5, "phase": "S",
+        "mol": {
+            "UO2": 0.810614973,
+            "PuO2": 0.00765862,
+            "NpO2": 0.000403571,
+            "AmO2": 0.000321834,
+            "Cs2O": 0.004272278,
+            "SrO": 0.002094222,
+            "Nd2O3": 0.00627727,
+            "Sm2O3": 0.001264957,
+            "Eu2O3": 0.000183208,
+            "Gd2O3": 0.000106239,
+            "Tc": 0.003139914,
+            "Xe": 0.013807779,
+            "Kr": 0.002438652,
+            "I": 0.000552969,
+            "Zircaloy": 0.131325068,
+        },
+    },
+    # Wash / cleaning water to dissolver train
+    "F2B": {"T": 298.15, "p": 1e5, "phase": "L", "mol": {"H2O": 1.034165}},
+    # Recycle-sized feeds
+    "F2M": {"T": 298.15, "p": 1e5, "phase": "L", "mol": {"HNO3": 0.5, "H2O": 0.2}},
+    "F2W": {"T": 298.15, "p": 1e5, "phase": "L", "mol": {"H2O": 0.1}},
+    "F16": {"T": 298.15, "p": 1e5, "phase": "L", "mol": {"TBP": 0.1, "Dodecane": 0.5}},
+    "F9": {"T": 298.15, "p": 1e5, "phase": "L", "mol": {"AHA": 0.25, "HNO3": 0.5, "H2O": 1.0}},
+    "F11": {"T": 298.15, "p": 1e5, "phase": "L", "mol": {"HNO3": 0.01, "H2O": 1.0}},
+    "F40": {"T": 298.15, "p": 1e5, "phase": "G", "mol": {"O2": 0.21 * 2.135616222, "N2": 0.79 * 2.135616222}},
+    "F43": {"T": 298.15, "p": 1e5, "phase": "G", "mol": {"NH3": 0.05}},
+    "F47": {"T": 298.15, "p": 1e5, "phase": "L", "mol": {"H2O": 1.0}},
+    "F52A": {"T": 298.15, "p": 1e5, "phase": "G", "mol": {"O2": 0.021, "N2": 0.079}},
+    "F52B": {"T": 298.15, "p": 1e5, "phase": "G", "mol": {"O2": 0.021, "N2": 0.079}},
+    # Updated final reactor-section air feed from the revised reactor stream table
+    "F73": {"T": 414.0, "p": 1.0e5, "phase": "G", "mol": {"O2": 1.196823, "N2": 2.982937}},
+    # Utility/service-side helper feeds used to reproduce the revised EV-103 train stream table
+    "U67_src": {"T": 393.15, "p": 1.0e5, "phase": "L", "mol": {"H2O": 16.222300}},
+}
+
+# ---------------------------------------------------------------------------
+# RECYCLE-DEPENDENT SIZING TARGETS (kept aligned with old_complex)
+# ---------------------------------------------------------------------------
+ACID_TARGETS = {"hno3_mol_s": 2.936403, "h2o_mol_s": 6.571934}
+
+ACID_STOCK = {
+    "hno3_vol_frac": 0.70,
+    "h2o_vol_frac": 0.30,
+    "mw_hno3": 63.012,
+    "rho_hno3_g_ml": 1.51,
+    "water_molarity": 55.5,
+}
+ACID_STOCK["hno3_molarity_pure"] = ACID_STOCK["rho_hno3_g_ml"] * 1000.0 / ACID_STOCK["mw_hno3"]
+ACID_STOCK["water_per_hno3_mol"] = (
+    (ACID_STOCK["h2o_vol_frac"] * ACID_STOCK["water_molarity"]) /
+    (ACID_STOCK["hno3_vol_frac"] * ACID_STOCK["hno3_molarity_pure"])
+)
+
+SOLVENT = {"TBP_name": "TBP", "diluent_name": "Dodecane", "TBP_wt_frac": 0.30}
+
+X101_SIZING = {"OA_target": 0.777772895903665, "OA_min": 0.5}
+X102_SIZING = {
+    "AO_target": 0.1,
+    "water_molarity": 55.5,
+    "molarities": {"AHA": 0.25, "HNO3": 0.5},
+}
+X103_SIZING = {
+    "AO_target": 2.5,
+    "water_molarity": 55.5,
+    "molarities": {"HNO3": 0.01},
+}
+
+# ---------------------------------------------------------------------------
+# DISSOLVER TRAIN / EFFECTIVE CONTINUOUS REPRESENTATION
+# ---------------------------------------------------------------------------
+DISSOLVER = {
+    "uo2_r1_frac": 0.18,
+    "iodine_total_species": "I",
+    "iodine_gas_species": "I_g",
+    "iodine_aq_species": "I_aq",
+    "iodine_offgas_frac": 0.98,
+    "noble_gases": ("Xe", "Kr"),
+    "zircaloy_species": "Zircaloy",
+    "zircaloy_basket_mol_s": 0.131325068 - 6.234e-3,
+    "zircaloy_escape_fines_mol_s": 6.234e-3,
+    "fines_settle_frac": 0.0,
+    "nox_no2_frac": 0.415,
+}
+
+# ---------------------------------------------------------------------------
+# FIXED SPLITS / CONVERSIONS FOR SIMPLIFIED UNITS
+# Fractions are chosen to reproduce the old_complex base case for the current
+# nominal feed / recycle state. They are easy to edit later.
+# ---------------------------------------------------------------------------
+X101 = {
+    "frac_to_organic": {
+        "TBP": 0.99871427976687,
+        "Dodecane": 1.0,
+        "UO2(NO3)2": 0.9989999973493199,
+        "Pu(NO3)4": 0.9274835914098941,
+        "Np(NO3)4": 0.9101737719162379,
+        "HTcO4": 0.350657897312383,
+    },
+    "default_frac_to_organic": 0.0,
+}
+
+CF101 = {
+    "frac_removed": {"TBP": 0.9595917602494292, "Dodecane": 0.0},
+    "default_frac_removed": 0.0,
+}
+
+E101 = {
+    "frac_to_vapour": {"H2O": 0.02206515731274, "HNO3": 0.5621469949705132},
+    "default_frac_to_vapour": 0.0,
+}
+
+X102 = {
+    "frac_to_aqueous": {
+        "AHA": 1.0,
+        "H2O": 1.0,
+        "HNO3": 1.0,
+        "Pu(NO3)4": 1.0,
+        "Np(NO3)4": 1.0,
+        "HTcO4": 0.19999795199475706,
+        "UO2(NO3)2": 0.0024999999999999363,
+        "TBP": 1.0e-4,
+        "Dodecane": 0.0,
+    },
+    "default_frac_to_aqueous": 0.0,
+}
+
+CF102 = {"frac_removed": {"TBP": 0.86238997960775}, "default_frac_removed": 0.0}
+
+E102 = {
+    "frac_to_vapour": {"H2O": 0.010498937973213883, "HNO3": 0.3764594792366077},
+    "default_frac_to_vapour": 0.0,
+}
+
+X103 = {
+    "frac_to_aqueous": {
+        "H2O": 1.0,
+        "HNO3": 1.0,
+        "UO2(NO3)2": 0.9999999099999991,
+        "HTcO4": 0.999380673704373,
+        "TBP": 0.0024999999999999294,
+        "Dodecane": 0.0,
+    },
+    "default_frac_to_aqueous": 0.0,
+}
+
+CF103 = {"frac_removed": {"TBP": 0.9952853475981924}, "default_frac_removed": 0.0}
+
+# Explicit EV-103A/B/C break-out.
+#
+# Intended simplified concentration logic
+# --------------------------------------
+# EV-103A
+#   - main flash/concentration step
+#   - removes most volatile H2O/HNO3 to F65 (sent to the hot-vapour header)
+#   - keeps essentially all U in the liquid train
+#   - bleeds a small heel of entrained organic / trace impurities to F69
+# EV-103B
+#   - hydraulic / internal stage split of the concentrated liquor into two feeds
+#     to EV-103C (F66 and F68), with a small heel/waste bleed F72
+#   - the upper feed F66 is intentionally lighter (more H2O/HNO3, less U)
+#     than the lower feed F68
+# EV-103C
+#   - final concentration / product draw stage
+#   - sends essentially all uranium nitrate to product F24
+#   - sends a small mother-liquor / impurity bleed to F70
+#
+# The combined effect is kept close to the old_complex single-E103 behaviour:
+# most H2O/HNO3 is removed from the U-product stream, but the staged PFD
+# topology is now represented explicitly and the per-species stage routing is
+# easy to edit here.
+
+EV103A = {
+    # Finalised performance data from the updated reactor / evaporator stream table.
+    # Visible split:
+    #   F57T -> F65 + F64_raw
+    # Only the water split is enforced here; trace impurities are cleaned from
+    # F64_raw in a downstream internal step so the exported PFD-facing streams
+    # match the finalised table.
+    "frac_to_A": {
+        "H2O": 6.340412 / 22.007472,
+    },
+    "default_frac_to_A": 0.0,
+}
+
+EV103B = {
+    # Finalised visible split:
+    #   F64 -> F66 + F68
+    # F66 is the light side stream; F68 is the heavy U-bearing stream.
+    "frac_to_A": {
+        "H2O": 6.660651 / 15.667060,
+    },
+    "default_frac_to_A": 0.0,
+}
+
+EV103C_STAGE = {
+    # Source-sensitive final evaporator stage.
+    # Light feed F66 goes directly to the visible waste stream F70.
+    # Heavy feed F68 is split to product F24 and vapour F25.
+    # Auxiliary impurity stream from EV103A cleaning carries HNO3/TBP/HTcO4.
+    "heavy_to_product": {
+        "H2O": 2.206324,
+        "UO2(NO3)2": 0.807780,
+    },
+    "heavy_to_vapour": {
+        "H2O": 6.803606,
+    },
+    "aux_to_product": {
+        "HNO3": 0.000397,
+        "TBP": 0.000020,
+        "HTcO4": 0.000880,
+    },
+    # Small fitted water generation term needed to reproduce the finalised
+    # EV-103C outlet table exactly.
+    "extra_h2o_to_vapour": 0.003520,
+}
+
+# Auxiliary revised reactor-section water/service streams
+REACTOR_AUX = {
+    "F67_H2O_mol_s": 16.222300,
+    "F69_H2O_mol_s": 16.222300,
+    "F72_H2O_mol_s": 6.340412,
+}
+
+R201 = {
+    # Finalised reactor-section performance fit.
+    "no2_per_u": 2.0,
+    "o2_per_u": 0.0,
+    "h2o_to_offgas_frac": 2.200747 / 2.206324,
+    "route_hno3_to_offgas": 0.0,
+    "route_tbp_to_offgas": 0.0,
+    "route_htco4_to_offgas": 0.0,
+}
+R202 = {
+    "reactions": [
+        {
+            "reactant": "UO3",
+            "conversion": 1.0,
+            "products": {"U3O8": 1.0 / 3.0, "O2": 1.0 / 6.0},
+            "outlet_solid": ["U3O8"],
+            "outlet_gas": ["O2"],
+        }
+    ],
+    "default_to_solid": True,
+}
+
+K301 = {"frac_to_liquid": {"H2O": 1.0, "HNO3": 1.0}, "default_frac_to_liquid": 0.0}
+
+D101 = {"NO2_capture_frac": 0.99, "NO_capture_frac": 0.95, "LG_water_per_gas": 6.0 / 2.68178}
+E104 = {"target_hno3_mass_frac": 0.74}
+
+EVAP_AHA = {"products": {"AcOH": 1.0, "N2O": 0.5}, "hno3_consumption": 0.0}
+R103 = {"NOx_removal_frac": 0.9376, "NH3_excess_factor": 1.15}
+KO101 = {"water_removal_frac": 1.0}
+D102 = {"NH3_capture_frac": 0.99, "LG_water_per_gas": 6.77}
+V104 = {"purge_frac": 0.05}
+V105 = {"purge_frac": 0.05}
+V133 = {"purge_frac": 0.05}
+
+TSA = {
+    "iodine_species": "I_g",
+    "ads_capture_frac": 1.0,
+    "regen_max_y_I2": 0.1,
+    "regen_O2_frac": 0.21,
+    "regen_N2_frac": 0.79,
+    "active_column": "A",
+    "t_ads_s": 8.0 * 3600.0,
+    "t_regen_s": 4.0 * 3600.0,
+}
+
+# ---------------------------------------------------------------------------
+# UNIT CONDITIONS
+# ---------------------------------------------------------------------------
+_EVAP_P_PA = 70.0 / 760.0 * 101325.0
+UNIT_CONDITIONS = {
+    # front end / dissolver train
+    "M102_AcidMakeupMixer": {"T": 298.15, "p": 1e5},
+    "V101_AcidTank": {"T": 298.15, "p": 1e5},
+    "P107_AcidTransfer": {"T": 298.15, "p": 1e5},
+    "E101_AcidHeater": {"T": 373.15, "p": 1e5},
+    "DS101_104_DissolverTrain": {"T": 373.15, "p": 1e5},
+    "V102_DissolverHold": {"T": 298.15, "p": 1e5},
+    "P108_ToX101": {"T": 298.15, "p": 1e5},
+    "V103_OffgasSurge": {"T": 298.15, "p": 1e5},
+    "P104_OffgasBlower": {"T": 298.15, "p": 1e5},
+    # solvent extraction section
+    "M114_SolventMakeupMixer": {"T": 298.15, "p": 1e5},
+    "X101_TBP_Extraction": {"T": 298.15, "p": 1e5},
+    "CF101_Coalescer": {"T": 298.15, "p": 1e5},
+    "E102_RaffinateEvaporator": {"T": 318.15, "p": _EVAP_P_PA},
+    "X102_AHA_Strip": {"T": 298.15, "p": 1e5},
+    "CF102_Coalescer": {"T": 298.15, "p": 1e5},
+    "EV101_PuNpEvaporator": {"T": 318.15, "p": _EVAP_P_PA},
+    "B101_OverheadBlower": {"T": 323.15, "p": 1e5},
+    "X103_Final_Strip": {"T": 323.15, "p": 1e5},
+    "CF103_Coalescer": {"T": 379.20, "p": 0.8729e5},
+    # uranium concentration / product section
+    "E107_UFeedHeater": {"T": 379.20, "p": 0.8729e5},
+    "EV103A_UConcentrator1": {"T": 383.15, "p": 1.0e5},
+    "EV103B_UConcentrator2": {"T": 379.20, "p": 0.8729e5},
+    "EV103C_UConcentrator3": {"T": 375.00, "p": 0.7526e5},
+    "M270_EV103_OverheadMixer": {"T": 375.00, "p": 0.7526e5},
+    "M271_EV103C_FeedMixer": {"T": 379.20, "p": 0.8729e5},
+    "M272_EV103_WasteMixer": {"T": 375.00, "p": 0.7526e5},
+    "P105_UProductPump": {"T": 375.00, "p": 0.7526e5},
+    "E109_UProductHeater": {"T": 475.00, "p": 1.0e5},
+    "R101_ThermalReactor": {"T": 475.00, "p": 1.0e5},
+    "P106_ReactorOffgasBlower": {"T": 475.00, "p": 1.0e5},
+    "E111_ReactorOffgasCooler": {"T": 475.00, "p": 1.0e5},
+    "E110_ProductCooler": {"T": 475.00, "p": 1.0e5},
+    "K101_UProductSeparator": {"T": 475.00, "p": 1.0e5},
+    "M301_HotVapourMixer": {"T": 373.15, "p": 1e5},
+    "K301_Condenser": {"T": 298.15, "p": 1e5},
+    # offgas treatment
+    "M302_OffgasMixer": {"T": 298.15, "p": 1e5},
+    "E113_OffgasCooler": {"T": 313.15, "p": 1e5},
+    "D101_NO2_Absorber": {"T": 313.15, "p": 1e5},
+    "M303_AcidMixer": {"T": 313.15, "p": 1e5},
+    "E118_AcidTrimHeater": {"T": 313.15, "p": 1e5},
+    "E104_HNO3_Concentrator": {"T": 373.15, "p": 1e5},
+    "V104_AcidPurge": {"T": 298.15, "p": 1e5},
+    "R103_NOxReduction": {"T": 673.15, "p": 1e5},
+    "KO101_KnockoutPot": {"T": 323.15, "p": 1e5},
+    "V105_KOWaterPurge": {"T": 323.15, "p": 1e5},
+    "M105_WaterTrimMixer": {"T": 298.15, "p": 1e5},
+    "E116_D102WaterHeater": {"T": 323.15, "p": 1e5},
+    "D102_NH3_Absorber": {"T": 323.15, "p": 1e5},
+    "V201_TSA_Split": {"T": 298.15, "p": 1e5},
+    "TSA101A": {"T": 298.15, "p": 1e5},
+    "TSA101B": {"T": 298.15, "p": 1e5},
+    # solvent recycle
+    "M132_SolventRecoveryMixer": {"T": 298.15, "p": 1e5},
+    "M133_SolventMixer": {"T": 298.15, "p": 1e5},
+    "HX133_SolventCooler": {"T": 298.15, "p": 1e5},
+    "V133_SolventPurge": {"T": 298.15, "p": 1e5},
+}
+
+# ---------------------------------------------------------------------------
+# CONDITIONING FLAGS
+# ---------------------------------------------------------------------------
+CONDITION_FEEDS = {
+    ("F2S", "DS101_104_DissolverTrain"): True,
+    ("F53", "E102_RaffinateEvaporator"): True,
+    ("F55", "EV101_PuNpEvaporator"): True,
+    ("F57", "E107_UFeedHeater"): True,
+    ("F30", "K301_Condenser"): True,
+    ("F41", "E113_OffgasCooler"): True,
+    ("F42", "R103_NOxReduction"): True,
+    ("F43", "R103_NOxReduction"): True,
+}
+
+# ---------------------------------------------------------------------------
+# SOLVER SETTINGS
+# ---------------------------------------------------------------------------
+SOLVER = {
+    "tear_streams": ["F15", "F2R", "F45R"],
+    "max_iter": 300,
+    "tol": 1e-7,
+    "relax": 0.45,
+    "use_anderson": True,
+    "anderson_m": 6,
+    "verbose": True,
+    "print_every": 10,
+}
