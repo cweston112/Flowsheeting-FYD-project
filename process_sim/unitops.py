@@ -117,12 +117,14 @@ class EV103CPerformanceStage(UnitOp):
         *,
         heavy_to_product: Dict[str, float],
         heavy_to_vapour: Dict[str, float],
+        light_to_product: Dict[str, float],
         aux_to_product: Dict[str, float],
         extra_h2o_to_vapour: float = 0.0,
     ):
         super().__init__(name)
         self.heavy_to_product = dict(heavy_to_product)
         self.heavy_to_vapour = dict(heavy_to_vapour)
+        self.light_to_product = dict(light_to_product)
         self.aux_to_product = dict(aux_to_product)
         self.extra_h2o_to_vapour = float(extra_h2o_to_vapour)
 
@@ -148,10 +150,17 @@ class EV103CPerformanceStage(UnitOp):
                 out.p = pref
                 out.phase = phase
 
-        # Light stream goes entirely to visible waste.
+        # Light stream goes mostly to visible waste, but trace dissolved
+        # non-volatiles can be retained to product for compositionally consistent bookkeeping.
         for sp, n in light.mol.items():
-            if n > EPS:
-                waste.add(sp, n)
+            if n <= EPS:
+                continue
+            n_prod = min(self.light_to_product.get(sp, 0.0), n)
+            rem = n - n_prod
+            if n_prod > EPS:
+                product.add(sp, n_prod)
+            if rem > EPS:
+                waste.add(sp, rem)
 
         # Heavy stream is routed by specified target amounts.
         for sp, n in heavy.mol.items():

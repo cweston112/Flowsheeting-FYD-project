@@ -236,14 +236,36 @@ X103 = {
 
 CF103 = {"frac_removed": {"TBP": 0.9952853475981924}, "default_frac_removed": 0.0}
 
+# Explicit EV-103A/B/C break-out.
+#
+# Intended simplified concentration logic
+# --------------------------------------
+# EV-103A
+#   - main flash/concentration step
+#   - removes most volatile H2O/HNO3 to F65 (sent to the hot-vapour header)
+#   - keeps essentially all U in the liquid train
+#   - bleeds a small heel of entrained organic / trace impurities to F69
+# EV-103B
+#   - hydraulic / internal stage split of the concentrated liquor into two feeds
+#     to EV-103C (F66 and F68), with a small heel/waste bleed F72
+#   - the upper feed F66 is intentionally lighter (more H2O/HNO3, less U)
+#     than the lower feed F68
+# EV-103C
+#   - final concentration / product draw stage
+#   - sends essentially all uranium nitrate to product F24
+#   - sends a small mother-liquor / impurity bleed to F70
+#
+# The combined effect is kept close to the old_complex single-E103 behaviour:
+# most H2O/HNO3 is removed from the U-product stream, but the staged PFD
+# topology is now represented explicitly and the per-species stage routing is
+# easy to edit here.
 
 EV103A = {
     # Finalised performance data from the updated reactor / evaporator stream table.
     # Visible split:
     #   F57T -> F65 + F64_raw
-    # Only the water split is enforced here; trace impurities are cleaned from
-    # F64_raw in a downstream internal step so the exported PFD-facing streams
-    # match the finalised table.
+    # Water is flashed here, while trace non-volatiles remain in the visible
+    # liquid path so TBP handling is compositionally consistent through EV-103A/B/C.
     "frac_to_A": {
         "H2O": 6.340412 / 22.007472,
     },
@@ -254,28 +276,34 @@ EV103B = {
     # Finalised visible split:
     #   F64 -> F66 + F68
     # F66 is the light side stream; F68 is the heavy U-bearing stream.
+    # TBP is split visibly here so it remains traceable through EV-103B,
+    # while HNO3 / HTcO4 continue to follow the fitted auxiliary route.
     "frac_to_A": {
         "H2O": 6.660651 / 15.667060,
+        "TBP": 6.660651 / 15.667060,
     },
     "default_frac_to_A": 0.0,
 }
 
 EV103C_STAGE = {
     # Source-sensitive final evaporator stage.
-    # Light feed F66 goes directly to the visible waste stream F70.
+    # Light feed F66 is mostly visible waste F70, but split TBP is retained to
+    # product for compositionally consistent bookkeeping.
     # Heavy feed F68 is split to product F24 and vapour F25.
-    # Auxiliary impurity stream from EV103A cleaning carries HNO3/TBP/HTcO4.
     "heavy_to_product": {
         "H2O": 2.206324,
         "UO2(NO3)2": 0.807780,
+        "TBP": 0.000011643384884813555,
     },
     "heavy_to_vapour": {
         "H2O": 6.803606,
     },
+    "light_to_product": {
+        "TBP": 0.000008610815115186445,
+    },
     "aux_to_product": {
-        "HNO3": 0.000397,
-        "TBP": 0.000020,
-        "HTcO4": 0.000880,
+        "HNO3": 0.000396602,
+        "HTcO4": 0.000880431,
     },
     # Small fitted water generation term needed to reproduce the finalised
     # EV-103C outlet table exactly.
@@ -348,7 +376,7 @@ UNIT_CONDITIONS = {
     "DS101_104_DissolverTrain": {"T": 373.15, "p": 1e5},
     "V102_DissolverHold": {"T": 298.15, "p": 1e5},
     "P108_ToX101": {"T": 298.15, "p": 1e5},
-    "V103_OffgasSurge": {"T": 298.15, "p": 1e6},
+    "V103_OffgasSurge": {"T": 298.15, "p": 1e5},
     "P104_OffgasBlower": {"T": 298.15, "p": 1e5},
     # solvent extraction section
     "M114_SolventMakeupMixer": {"T": 298.15, "p": 1e5},
