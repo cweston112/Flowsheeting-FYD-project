@@ -197,19 +197,19 @@ def build_flowsheet(*, max_iter=None, tol=None, relax=None, verbose=None) -> Flo
 
     # process streams
     for name, phase in [
-        ("F2WM", "L"), ("F2", "L"), ("F2S", "L"), ("F2SP", "L"), ("F2STP", "L"),
-        ("F3", "G"), ("F3T", "G"), ("F4", "S"), ("F5", "L"), ("F5T", "L"), ("F6", "L"), ("F6P", "L"),
+        ("F2WM", "L"), ("F2", "L"), ("F2S", "L"), ("F2SP", "L"),
+        ("F3", "G"), ("F3P", "G"), ("F3PT", "G"), ("F4", "S"), ("F5", "L"), ("F5T", "L"), ("F6", "L"), ("F6P", "L"),
         ("F7", "L"), ("F8", "L"), ("F17", "L"), ("F53", "L"), ("F53PT", "L"), ("F54", "L"),
         ("F19", "L"), ("F20", "G"), ("F18", "L"), ("F10", "L"), ("F10T", "L"), ("F55", "L"), ("F55PT", "L"),
         ("F56", "L"), ("F21", "L"), ("F22", "G"), ("F23T", "G"), ("F23TP", "G"),
-        ("F11T", "L"), ("F12", "L"), ("F12P", "L"), ("F13", "L"), ("F13P", "L"), ("F57", "L"), ("F58", "L"), ("F57T", "L"), ("F67", "L"),
+        ("F11T", "L"), ("F12", "L"), ("F12P", "L"), ("F13", "L"), ("F13P", "L"), ("F57", "L"), ("F58", "L"), ("F67", "L"),
         ("F64_raw", "L"), ("F64_aux", "L"), ("F64", "L"), ("F65", "G"), ("F66", "L"), ("F68", "L"), ("F69", "L"),
         ("F70", "L"), ("F70_sink", "L"), ("F71", "L"), ("F72", "L"), ("F24", "L"), ("F24P", "L"),
         ("F24PT", "L"), ("F25", "G"), ("F26", "S"), ("F26T", "S"), ("F29", "G"), ("F29P", "G"), ("F29TP", "G"), ("F27", "S"),
         ("F28", "G"), ("F30", "G"), ("F30P", "G"), ("F30TP", "G"), ("F31", "L"), ("F31P", "L"), ("F32", "G"), ("F32P", "G"), ("F63", "G"),
         ("F63P", "G"), ("F41", "G"), ("F41T", "G"), ("F39", "L"), ("F35", "L"),
         ("F42", "G"), ("F42T", "G"), ("F43T", "G"), ("F36", "L"), ("F36T", "L"), ("F37", "G"), ("F38", "L"),
-        ("F59", "L"), ("F44", "G"), ("F45", "L"), ("F46", "G"), ("F47T", "L"),
+        ("F59", "L"), ("F44", "G"), ("F44T", "G"), ("F45", "L"), ("F46", "G"), ("F47T", "L"),
         ("F48", "L"), ("F49", "G"), ("F60", "L"), ("F49A", "G"), ("F49B", "G"),
         ("F50A", "G"), ("F50B", "G"), ("F51A", "G"), ("F51B", "G"), ("F61", "L"),
         ("F62", "L"), ("F13T", "L"), ("F14", "L"), ("F_StackGas", "G"),
@@ -221,16 +221,16 @@ def build_flowsheet(*, max_iter=None, tol=None, relax=None, verbose=None) -> Flo
     m102 = Mixer("M102_AcidMakeupMixer"); m102.connect_inlet("acid", fs.streams["F2M"]); m102.connect_inlet("water", fs.streams["F2WM"]); m102.connect_inlet("recycle", fs.streams["F2R"]); m102.connect_outlet("out", fs.streams["F2"])
     v101 = PassThrough("V101_AcidTank"); v101.connect_inlet("in", fs.streams["F2"]); v101.connect_outlet("out", fs.streams["F2S"])
     p107 = Conditioner("P107_AcidTransfer", target_T=cfg.UNIT_CONDITIONS["P107_AcidTransfer"]["T"], target_p=cfg.UNIT_CONDITIONS["P107_AcidTransfer"]["p"]); p107.connect_inlet("in", fs.streams["F2S"]); p107.connect_outlet("out", fs.streams["F2SP"])
-    e101acid = Conditioner("E101_AcidHeater", target_T=cfg.UNIT_CONDITIONS["E101_AcidHeater"]["T"]); e101acid.connect_inlet("in", fs.streams["F2SP"]); e101acid.connect_outlet("out", fs.streams["F2STP"])
     ds = DissolutionReactor("DS101_104_DissolverTrain", **cfg.DISSOLVER)
-    ds.connect_inlet("fuel", fs.streams["F1"]); ds.connect_inlet("acid", fs.streams["F2STP"]); ds.connect_inlet("cleaning_water", fs.streams["F2B"])
+    ds.connect_inlet("fuel", fs.streams["F1"]); ds.connect_inlet("acid", fs.streams["F2SP"]); ds.connect_inlet("cleaning_water", fs.streams["F2B"])
     ds.connect_outlet("offgas", fs.streams["F3"]); ds.connect_outlet("aq", fs.streams["F5"]); ds.connect_outlet("solids", fs.streams["F4"])
     e102_diss = Conditioner("E102_DissolverLiquorCooler", target_T=cfg.UNIT_CONDITIONS["E102_DissolverLiquorCooler"]["T"], target_p=cfg.UNIT_CONDITIONS["E102_DissolverLiquorCooler"].get("p")); e102_diss.connect_inlet("in", fs.streams["F5"]); e102_diss.connect_outlet("out", fs.streams["F5T"])
     v102 = PassThrough("V102_DissolverHold"); v102.connect_inlet("in", fs.streams["F5T"]); v102.connect_outlet("out", fs.streams["F6"])
     p108 = Conditioner("P108_ToX101", target_T=cfg.UNIT_CONDITIONS["P108_ToX101"]["T"], target_p=cfg.UNIT_CONDITIONS["P108_ToX101"]["p"]); p108.connect_inlet("in", fs.streams["F6"]); p108.connect_outlet("out", fs.streams["F6P"])
-    e117_diss = Conditioner("E117_DissolverOffgasCooler", target_T=cfg.UNIT_CONDITIONS["E117_DissolverOffgasCooler"]["T"], target_p=cfg.UNIT_CONDITIONS["E117_DissolverOffgasCooler"].get("p")); e117_diss.connect_inlet("in", fs.streams["F3"]); e117_diss.connect_outlet("out", fs.streams["F3T"])
-    v103 = PassThrough("V103_OffgasSurge"); v103.connect_inlet("in", fs.streams["F3T"]); v103.connect_outlet("out", fs.streams["F63"])
-    p104 = Conditioner("P104_OffgasBlower", target_T=cfg.UNIT_CONDITIONS["P104_OffgasBlower"]["T"], target_p=cfg.UNIT_CONDITIONS["P104_OffgasBlower"]["p"]); p104.connect_inlet("in", fs.streams["F63"]); p104.connect_outlet("out", fs.streams["F63P"])
+    c104 = Conditioner("C104_OffgasCompressor", target_T=cfg.UNIT_CONDITIONS["C104_OffgasCompressor"]["T"], target_p=cfg.UNIT_CONDITIONS["C104_OffgasCompressor"]["p"]); c104.connect_inlet("in", fs.streams["F3"]); c104.connect_outlet("out", fs.streams["F3P"])
+    e117_diss = Conditioner("E117_DissolverOffgasCooler", target_T=cfg.UNIT_CONDITIONS["E117_DissolverOffgasCooler"]["T"], target_p=cfg.UNIT_CONDITIONS["E117_DissolverOffgasCooler"].get("p")); e117_diss.connect_inlet("in", fs.streams["F3P"]); e117_diss.connect_outlet("out", fs.streams["F3PT"])
+    v103 = PassThrough("V103_OffgasSurge"); v103.connect_inlet("in", fs.streams["F3PT"]); v103.connect_outlet("out", fs.streams["F63"])
+    p104 = Conditioner("P104_OffgasChokeValve", target_T=cfg.UNIT_CONDITIONS["P104_OffgasChokeValve"]["T"], target_p=cfg.UNIT_CONDITIONS["P104_OffgasChokeValve"]["p"]); p104.connect_inlet("in", fs.streams["F63"]); p104.connect_outlet("out", fs.streams["F63P"])
 
     # solvent extraction
     m114 = Mixer("M114_SolventMakeupMixer"); m114.connect_inlet("makeup", fs.streams["F16"]); m114.connect_inlet("recycle", fs.streams["F15"]); m114.connect_outlet("out", fs.streams["F7"])
@@ -254,9 +254,8 @@ def build_flowsheet(*, max_iter=None, tol=None, relax=None, verbose=None) -> Flo
     x103 = SplitUnit("X103_Final_Strip", outlet_A="aqueous", outlet_B="organic", frac_to_A=cfg.X103["frac_to_aqueous"], default_frac_A=cfg.X103["default_frac_to_aqueous"]); x103.connect_inlet("in", fs.streams["F_X103"]); x103.connect_outlet("aqueous", fs.streams["F12"]); x103.connect_outlet("organic", fs.streams["F13"])
     p109 = Conditioner("P109_UFeedPump", target_T=cfg.UNIT_CONDITIONS["P109_UFeedPump"]["T"], target_p=cfg.UNIT_CONDITIONS["P109_UFeedPump"]["p"]); p109.connect_inlet("in", fs.streams["F12"]); p109.connect_outlet("out", fs.streams["F12P"])
     cf103 = Coalescer("CF103_Coalescer", frac_removed=cfg.CF103["frac_removed"], default_frac_removed=cfg.CF103["default_frac_removed"]); cf103.connect_inlet("in", fs.streams["F12P"]); cf103.connect_outlet("aqueous", fs.streams["F57"]); cf103.connect_outlet("recovered_org", fs.streams["F58"])
-    e107 = Conditioner("E107_UFeedHeater", target_T=cfg.UNIT_CONDITIONS["E107_UFeedHeater"]["T"], target_p=cfg.UNIT_CONDITIONS["E107_UFeedHeater"]["p"]); e107.connect_inlet("in", fs.streams["F57"]); e107.connect_outlet("out", fs.streams["F57T"])
     e107_u = PassThrough("E107_SteamCondensate"); e107_u.connect_inlet("in", fs.streams["U67_src"]); e107_u.connect_outlet("out", fs.streams["F67"])
-    ev103a = SplitUnit("EV103A_UConcentrator1", outlet_A="vapour", outlet_B="to_raw", frac_to_A=cfg.EV103A["frac_to_A"], default_frac_A=cfg.EV103A["default_frac_to_A"]); ev103a.connect_inlet("in", fs.streams["F57T"]); ev103a.connect_outlet("vapour", fs.streams["F65"]); ev103a.connect_outlet("to_raw", fs.streams["F64_raw"])
+    ev103a = SplitUnit("EV103A_UConcentrator1", outlet_A="vapour", outlet_B="to_raw", frac_to_A=cfg.EV103A["frac_to_A"], default_frac_A=cfg.EV103A["default_frac_to_A"]); ev103a.connect_inlet("in", fs.streams["F57"]); ev103a.connect_outlet("vapour", fs.streams["F65"]); ev103a.connect_outlet("to_raw", fs.streams["F64_raw"])
     ev103a_clean = SplitUnit("EV103A_InternalCleaner", outlet_A="aux", outlet_B="clean", frac_to_A={"HNO3": 1.0, "HTcO4": 1.0}, default_frac_A=0.0); ev103a_clean.connect_inlet("in", fs.streams["F64_raw"]); ev103a_clean.connect_outlet("aux", fs.streams["F64_aux"]); ev103a_clean.connect_outlet("clean", fs.streams["F64"])
     ev103a_aux = PassThrough("EV103A_CondensatePass"); ev103a_aux.connect_inlet("in", fs.streams["F67"]); ev103a_aux.connect_outlet("out", fs.streams["F69"])
     ev103b = SplitUnit("EV103B_UConcentrator2", outlet_A="to_C1", outlet_B="to_C2", frac_to_A=cfg.EV103B["frac_to_A"], default_frac_A=cfg.EV103B["default_frac_to_A"]); ev103b.connect_inlet("in", fs.streams["F64"]); ev103b.connect_outlet("to_C1", fs.streams["F66"]); ev103b.connect_outlet("to_C2", fs.streams["F68"])
@@ -303,7 +302,8 @@ def build_flowsheet(*, max_iter=None, tol=None, relax=None, verbose=None) -> Flo
     e104 = AcidConcentrator("E104_HNO3_Concentrator", target_hno3_mass_frac=cfg.E104["target_hno3_mass_frac"]); e104.connect_inlet("in", fs.streams["F36T"]); e104.connect_outlet("concentrated", fs.streams["F38"]); e104.connect_outlet("steam", fs.streams["F37"])
     v104 = PurgeSplitter("V104_AcidPurge", purge_frac=cfg.V104["purge_frac"]); v104.connect_inlet("in", fs.streams["F38"]); v104.connect_outlet("purge", fs.streams["F59"]); v104.connect_outlet("recycle", fs.streams["F2R"])
     r103 = SCRReactor("R103_NOxReduction", NOx_removal_frac=cfg.R103["NOx_removal_frac"], NH3_excess_factor=cfg.R103["NH3_excess_factor"]); r103.connect_inlet("gas", fs.streams["F42T"]); r103.connect_inlet("nh3", fs.streams["F43T"]); r103.connect_outlet("out", fs.streams["F44"])
-    ko101 = KnockoutPot("KO101_KnockoutPot", water_removal_frac=cfg.KO101["water_removal_frac"]); ko101.connect_inlet("in", fs.streams["F44"]); ko101.connect_outlet("gas", fs.streams["F46"]); ko101.connect_outlet("liquid", fs.streams["F45"])
+    e119 = Conditioner("E119_KOPreCooler", target_T=cfg.UNIT_CONDITIONS["E119_KOPreCooler"]["T"], target_p=cfg.UNIT_CONDITIONS["E119_KOPreCooler"].get("p")); e119.connect_inlet("in", fs.streams["F44"]); e119.connect_outlet("out", fs.streams["F44T"])
+    ko101 = KnockoutPot("KO101_KnockoutPot", water_removal_frac=cfg.KO101["water_removal_frac"]); ko101.connect_inlet("in", fs.streams["F44T"]); ko101.connect_outlet("gas", fs.streams["F46"]); ko101.connect_outlet("liquid", fs.streams["F45"])
     v105 = PurgeSplitter("V105_KOWaterPurge", purge_frac=cfg.V105["purge_frac"]); v105.connect_inlet("in", fs.streams["F45"]); v105.connect_outlet("purge", fs.streams["F60"]); v105.connect_outlet("recycle", fs.streams["F45R"])
     e116 = Conditioner("E116_D102WaterHeater", target_T=cfg.UNIT_CONDITIONS["E116_D102WaterHeater"]["T"]); e116.connect_inlet("in", fs.streams["F47"]); e116.connect_outlet("out", fs.streams["F47T"])
     d102 = NH3Absorber("D102_NH3_Absorber", NH3_capture_frac=cfg.D102["NH3_capture_frac"]); d102.connect_inlet("gas", fs.streams["F46"]); d102.connect_inlet("water", fs.streams["F47T"]); d102.connect_outlet("gas_out", fs.streams["F49"]); d102.connect_outlet("aqueous", fs.streams["F48"])
@@ -326,9 +326,9 @@ def build_flowsheet(*, max_iter=None, tol=None, relax=None, verbose=None) -> Flo
     hx133 = Conditioner("HX133_SolventCooler", target_T=298.15); hx133.connect_inlet("in", fs.streams["F62"]); hx133.connect_outlet("out", fs.streams["F13T"])
     v133 = PurgeSplitter("V133_SolventPurge", purge_frac=cfg.V133["purge_frac"]); v133.connect_inlet("in", fs.streams["F13T"]); v133.connect_outlet("purge", fs.streams["F14"]); v133.connect_outlet("recycle", fs.streams["F15"])
 
-    units = [m105, m102, v101, p107, e101acid, ds, e102_diss, v102, p108, e117_diss, v103, p104, m114, mx101, x101, cf101, e103, e102raff,
-             mx102, x102, cf102, e104s, ev101, m201, b101, e106, e105, mx103, x103, p109, cf103, e107, e107_u, ev103a, ev103a_clean, ev103a_aux, ev103b, ev103b_aux, ev103c, m272, p105, e109, r101, p106, e111, e110, k101, m301, p101, e112, k301, p103, p102,
-             m302, e113, d101, p102_scr, p114, m303, e118, e104, v104, r103, ko101, v105, e116, d102, v201, tsaA, tsaB, mstack, p110, m132,
+    units = [m105, m102, v101, p107, ds, c104, e117_diss, v103, p104, e102_diss, v102, p108, m114, mx101, x101, cf101, e103, e102raff,
+             mx102, x102, cf102, e104s, ev101, m201, b101, e106, e105, mx103, x103, p109, cf103, e107_u, ev103a, ev103a_clean, ev103a_aux, ev103b, ev103b_aux, ev103c, m272, p105, e109, r101, p106, e111, e110, k101, m301, p101, e112, k301, p103, p102,
+             m302, e113, d101, p102_scr, p114, m303, e118, e104, v104, r103, e119, ko101, v105, e116, d102, v201, tsaA, tsaB, mstack, p110, m132,
              m133, hx133, v133]
     for u in units:
         fs.add_unit(u)
@@ -336,7 +336,7 @@ def build_flowsheet(*, max_iter=None, tol=None, relax=None, verbose=None) -> Flo
     def evaluate_once() -> None:
         # A) size acid make-up from acid recycle
         _size_acid_makeup(fs)
-        _run(m105); _run(m102); _run(v101); _run(p107); _run(e101acid); _run(ds); _run(e102_diss); _run(v102); _run(p108); _run(e117_diss)
+        _run(m105); _run(m102); _run(v101); _run(p107); _run(ds); _run(c104); _run(e117_diss); _run(v103); _run(p104); _run(e102_diss); _run(v102); _run(p108)
 
         # B) size solvent make-up from current aqueous throughput entering X101
         n_aq = fs.streams["F6P"].total_molar_flow()
@@ -353,10 +353,10 @@ def build_flowsheet(*, max_iter=None, tol=None, relax=None, verbose=None) -> Flo
         O3 = fs.streams["F10"].total_molar_flow()
         Vdot3 = cfg.X103_SIZING["AO_target"] * O3 / max(cfg.X103_SIZING["water_molarity"], EPS)
         _set_aqueous_molarities(fs.streams["F11"], Vdot_L_s=Vdot3, molarity=cfg.X103_SIZING["molarities"], water_molarity_pure=cfg.X103_SIZING["water_molarity"])
-        _run(e106); _run(e105); _run(mx103); _run(x103); _run(p109); _run(cf103); _run(e107); _run(e107_u); _run(ev103a); _run(ev103a_clean); _run(ev103a_aux); _run(ev103b); _run(ev103b_aux); _run(ev103c); _run(m272); _run(p105); _run(e109); _run(r101); _run(p106); _run(e111); _run(e110); _run(k101); _run(m301); _run(p101); _run(e112); _run(k301)
+        _run(e106); _run(e105); _run(mx103); _run(x103); _run(p109); _run(cf103); _run(e107_u); _run(ev103a); _run(ev103a_clean); _run(ev103a_aux); _run(ev103b); _run(ev103b_aux); _run(ev103c); _run(m272); _run(p105); _run(e109); _run(r101); _run(p106); _run(e111); _run(e110); _run(k101); _run(m301); _run(p101); _run(e112); _run(k301)
 
         # E) offgas side and acid recycle
-        _run(v103); _run(p104); _run(p103); _run(p102); _run(m302)
+        _run(p103); _run(p102); _run(m302)
         _size_f39(fs)
         _run(e113); _run(d101); _run(m303); _run(e118); _run(e104)
         v104.purge_frac = _compute_acid_purge_frac(fs)
@@ -364,7 +364,7 @@ def build_flowsheet(*, max_iter=None, tol=None, relax=None, verbose=None) -> Flo
 
         # F) SCR / KO / NH3 absorber / KO recycle
         _size_f43(fs)
-        _run(p102_scr); _run(p114); _run(r103); _run(ko101)
+        _run(p102_scr); _run(p114); _run(r103); _run(e119); _run(ko101)
         _run(v105)
         _size_f47(fs)
         _run(e116); _run(d102)
