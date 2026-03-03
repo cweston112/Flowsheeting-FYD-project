@@ -408,7 +408,7 @@ UNIT_CONDITIONS = {
     "P106_ReactorOffgasBlower": {"T": 475.00, "p": 1.1e5},
     "E111_ReactorOffgasCooler": {"T": 475.00, "p": 1.0e5},
     "E110_ProductCooler": {"T": 475.00, "p": 1.0e5},
-    "K101_UProductSeparator": {"T": 475.00, "p": 1.0e5},
+    "K101_UProductSeparator": {"T": 650.00, "p": 1.0e5},
     "M301_HotVapourMixer": {"T": 373.15, "p": 1e5},
     "P101_HotVapourBlower": {"T": 373.15, "p": 1.1e5},
     "E112_HotVapourCooler": {"T": 298.15, "p": 1e5},
