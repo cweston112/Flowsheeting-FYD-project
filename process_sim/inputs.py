@@ -119,8 +119,7 @@ EXOGENOUS_STREAMS: dict[str, dict] = {
     "F52A": {"T": 298.15, "p": 1e5, "phase": "G", "mol": {"O2": 0.021, "N2": 0.079}},
     "F52B": {"T": 298.15, "p": 1e5, "phase": "G", "mol": {"O2": 0.021, "N2": 0.079}},
     # Updated final reactor-section air feed from the revised reactor stream table
-    "F73": {"T": 414.0, "p": 1.0e5, "phase": "G", "mol": {"O2": 1.196823, "N2": 2.982937}},
-    # Utility/service-side helper feeds used to reproduce the revised EV-103 train stream table
+    "F73": {"T": 298.15, "p": 1.0e5, "phase": "G", "mol": {"O2": 1.196823, "N2": 2.982937}},
     "U67_src": {"T": 393.15, "p": 1.0e5, "phase": "L", "mol": {"H2O": 16.222300}},
 }
 
@@ -236,36 +235,8 @@ X103 = {
 
 CF103 = {"frac_removed": {"TBP": 0.9952853475981924}, "default_frac_removed": 0.0}
 
-# Explicit EV-103A/B/C break-out.
-#
-# Intended simplified concentration logic
-# --------------------------------------
-# EV-103A
-#   - main flash/concentration step
-#   - removes most volatile H2O/HNO3 to F65 (sent to the hot-vapour header)
-#   - keeps essentially all U in the liquid train
-#   - bleeds a small heel of entrained organic / trace impurities to F69
-# EV-103B
-#   - hydraulic / internal stage split of the concentrated liquor into two feeds
-#     to EV-103C (F66 and F68), with a small heel/waste bleed F72
-#   - the upper feed F66 is intentionally lighter (more H2O/HNO3, less U)
-#     than the lower feed F68
-# EV-103C
-#   - final concentration / product draw stage
-#   - sends essentially all uranium nitrate to product F24
-#   - sends a small mother-liquor / impurity bleed to F70
-#
-# The combined effect is kept close to the old_complex single-E103 behaviour:
-# most H2O/HNO3 is removed from the U-product stream, but the staged PFD
-# topology is now represented explicitly and the per-species stage routing is
-# easy to edit here.
 
 EV103A = {
-    # Finalised performance data from the updated reactor / evaporator stream table.
-    # Visible split:
-    #   F57T -> F65 + F64_raw
-    # Water is flashed here, while trace non-volatiles remain in the visible
-    # liquid path so TBP handling is compositionally consistent through EV-103A/B/C.
     "frac_to_A": {
         "H2O": 6.340412 / 22.007472,
     },
@@ -273,11 +244,6 @@ EV103A = {
 }
 
 EV103B = {
-    # Finalised visible split:
-    #   F64 -> F66 + F68
-    # F66 is the light side stream; F68 is the heavy U-bearing stream.
-    # TBP is split visibly here so it remains traceable through EV-103B,
-    # while HNO3 / HTcO4 continue to follow the fitted auxiliary route.
     "frac_to_A": {
         "H2O": 6.660651 / 15.667060,
         "TBP": 6.660651 / 15.667060,
@@ -286,10 +252,6 @@ EV103B = {
 }
 
 EV103C_STAGE = {
-    # Source-sensitive final evaporator stage.
-    # Light feed F66 is mostly visible waste F70, but split TBP is retained to
-    # product for compositionally consistent bookkeeping.
-    # Heavy feed F68 is split to product F24 and vapour F25.
     "heavy_to_product": {
         "H2O": 2.206324,
         "UO2(NO3)2": 0.807780,
@@ -305,12 +267,9 @@ EV103C_STAGE = {
         "HNO3": 0.000396602,
         "HTcO4": 0.000880431,
     },
-    # Small fitted water generation term needed to reproduce the finalised
-    # EV-103C outlet table exactly.
     "extra_h2o_to_vapour": 0.003520,
 }
 
-# Auxiliary revised reactor-section water/service streams
 REACTOR_AUX = {
     "F67_H2O_mol_s": 16.222300,
     "F69_H2O_mol_s": 16.222300,
@@ -318,7 +277,6 @@ REACTOR_AUX = {
 }
 
 R201 = {
-    # Finalised reactor-section performance fit.
     "no2_per_u": 2.0,
     "o2_per_u": 0.0,
     "h2o_to_offgas_frac": 2.200747 / 2.206324,
@@ -397,7 +355,7 @@ UNIT_CONDITIONS = {
     "P109_UFeedPump": {"T": 343.15, "p": 1.1e5},
     "CF103_Coalescer": {"T": 343.15, "p": 0.8729e5},
     # uranium concentration / product section
-        "EV103A_UConcentrator1": {"T": 383.15, "p": 1.0e5},
+    "EV103A_UConcentrator1": {"T": 383.15, "p": 1.0e5},
     "EV103B_UConcentrator2": {"T": 379.20, "p": 0.8729e5},
     "EV103C_UConcentrator3": {"T": 375.00, "p": 0.7526e5},
     "M270_EV103_OverheadMixer": {"T": 375.00, "p": 0.7526e5},
@@ -455,6 +413,7 @@ CONDITION_FEEDS = {
     ("F41", "E113_OffgasCooler"): True,
     ("F42", "R103_NOxReduction"): True,
     ("F43", "R103_NOxReduction"): True,
+    ("F73", "R101_ThermalReactor"): True,
 }
 
 # ---------------------------------------------------------------------------

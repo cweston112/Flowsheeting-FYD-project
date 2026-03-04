@@ -212,7 +212,7 @@ def build_flowsheet(*, max_iter=None, tol=None, relax=None, verbose=None) -> Flo
         ("F59", "L"), ("F44", "G"), ("F44T", "G"), ("F45", "L"), ("F46", "G"), ("F47T", "L"),
         ("F48", "L"), ("F49", "G"), ("F60", "L"), ("F49A", "G"), ("F49B", "G"),
         ("F50A", "G"), ("F50B", "G"), ("F51A", "G"), ("F51B", "G"), ("F61", "L"),
-        ("F62", "L"), ("F13T", "L"), ("F14", "L"), ("F_StackGas", "G"),
+        ("F62", "L"), ("F13T", "L"), ("F14", "L"), ("F_StackGas", "G"), ("F73T", "G"),
     ]:
         S(name, phase)
 
@@ -279,7 +279,15 @@ def build_flowsheet(*, max_iter=None, tol=None, relax=None, verbose=None) -> Flo
         route_hno3_to_offgas=cfg.R201["route_hno3_to_offgas"],
         route_tbp_to_offgas=cfg.R201["route_tbp_to_offgas"],
         route_htco4_to_offgas=cfg.R201["route_htco4_to_offgas"],
-    ); r101.connect_inlet("in", fs.streams["F24PT"]); r101.connect_inlet("air", fs.streams["F73"]); r101.connect_outlet("solids", fs.streams["F26"]); r101.connect_outlet("offgas", fs.streams["F29"])
+    )
+    f73_cond = Conditioner(
+        "E73_R101AirConditioner",
+        target_T=cfg.UNIT_CONDITIONS["R101_ThermalReactor"]["T"],
+        target_p=cfg.UNIT_CONDITIONS["R101_ThermalReactor"]["p"],
+    )
+    f73_cond.connect_inlet("in", fs.streams["F73"])
+    f73_cond.connect_outlet("out", fs.streams["F73T"])
+    r101.connect_inlet("in", fs.streams["F24PT"]); r101.connect_inlet("air", fs.streams["F73T"]); r101.connect_outlet("solids", fs.streams["F26"]); r101.connect_outlet("offgas", fs.streams["F29"])
     p106 = Conditioner("P106_ReactorOffgasBlower", target_T=cfg.UNIT_CONDITIONS["P106_ReactorOffgasBlower"]["T"], target_p=cfg.UNIT_CONDITIONS["P106_ReactorOffgasBlower"]["p"]); p106.connect_inlet("in", fs.streams["F29"]); p106.connect_outlet("out", fs.streams["F29P"])
     e111 = Conditioner("E111_ReactorOffgasCooler", target_T=cfg.UNIT_CONDITIONS["E111_ReactorOffgasCooler"]["T"], target_p=cfg.UNIT_CONDITIONS["E111_ReactorOffgasCooler"]["p"]); e111.connect_inlet("in", fs.streams["F29P"]); e111.connect_outlet("out", fs.streams["F29TP"])
     e110 = Conditioner("E110_ProductCooler", target_T=cfg.UNIT_CONDITIONS["E110_ProductCooler"]["T"], target_p=cfg.UNIT_CONDITIONS["E110_ProductCooler"]["p"]); e110.connect_inlet("in", fs.streams["F26"]); e110.connect_outlet("out", fs.streams["F26T"])
@@ -353,7 +361,7 @@ def build_flowsheet(*, max_iter=None, tol=None, relax=None, verbose=None) -> Flo
         O3 = fs.streams["F10"].total_molar_flow()
         Vdot3 = cfg.X103_SIZING["AO_target"] * O3 / max(cfg.X103_SIZING["water_molarity"], EPS)
         _set_aqueous_molarities(fs.streams["F11"], Vdot_L_s=Vdot3, molarity=cfg.X103_SIZING["molarities"], water_molarity_pure=cfg.X103_SIZING["water_molarity"])
-        _run(e106); _run(e105); _run(mx103); _run(x103); _run(p109); _run(cf103); _run(e107_u); _run(ev103a); _run(ev103a_clean); _run(ev103a_aux); _run(ev103b); _run(ev103b_aux); _run(ev103c); _run(m272); _run(p105); _run(e109); _run(r101); _run(p106); _run(e111); _run(e110); _run(k101); _run(m301); _run(p101); _run(e112); _run(k301)
+        _run(e106); _run(e105); _run(mx103); _run(x103); _run(p109); _run(cf103); _run(e107_u); _run(ev103a); _run(ev103a_clean); _run(ev103a_aux); _run(ev103b); _run(ev103b_aux); _run(ev103c); _run(m272); _run(p105); _run(e109); _run(f73_cond); _run(r101); _run(p106); _run(e111); _run(e110); _run(k101); _run(m301); _run(p101); _run(e112); _run(k301)
 
         # E) offgas side and acid recycle
         _run(p103); _run(p102); _run(m302)
